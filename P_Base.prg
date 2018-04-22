@@ -99,10 +99,10 @@ return( SELF:oBase:IsLocalError( SELF:__symErrorGuid ) )
 METHOD ShowMessages( oCommConnect AS ABaseCommConnect, cMeldung AS STRING, lAuchWarnungen := TRUE AS LOGIC ) AS LOGIC PASCAL CLASS P_BaseObject
 
 	LOCAL lReturn             AS LOGIC
-	
+
 if( SELF:oBAse:IsProtocol() )
 	if( SELF:oBase:lError .or. ( lAuchWarnungen .and. SELF:oBase:lWarning ) )
-		lReturn := SELF:oBase:ShowProtIfError( SELF:oBase:oCommConnect, cMeldung, lAuchWarnungen )	
+		lReturn := SELF:oBase:ShowProtIfError( SELF:oBase:oCommConnect, cMeldung, lAuchWarnungen )
 	endif
 endif
 return( lReturn  )
@@ -241,7 +241,7 @@ CLASS P_Base INHERIT AObject
 	/* Für komplexere Operationen s. Cargo-Object in Evernote */
 	DECLARE METHOD GetCargo
 	DECLARE METHOD SetCargo
-	DECLARE METHOD IsInCargo              
+	DECLARE METHOD IsInCargo
 	DECLARE METHOD IsCargoType
 	DECLARE ACCESS Cargo
 
@@ -260,7 +260,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayToDisk
 	DECLARE METHOD ArrayFromDisk
 	DECLARE METHOD ArrayToSql
-	DECLARE METHOD ArrayFromSql 
+	DECLARE METHOD ArrayFromSql
 	DECLARE METHOD ArrayFromSqlStatement
 	DECLARE METHOD ArrayRecordFromSql
 	DECLARE METHOD GetSqlRecord
@@ -338,7 +338,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD SqlToDebugPrint
 	DECLARE ACCESS lDebugMode
 	DECLARE ASSIGN lDebugMode
-	DECLARE ACCESS dwRunTime 
+	DECLARE ACCESS dwRunTime
 	DECLARE METHOD RunTimeOutput
 	DECLARE METHOD ResetRunTime
 	DECLARE METHOD Trace
@@ -500,9 +500,9 @@ ACCESS dwRunTime	AS FLOAT PASCAL CLASS P_Base
 return((Seconds()-SELF:__dwStartTime)/60)
 
 METHOD ResetRunTime() AS VOID PASCAL CLASS P_Base
-SELF:__dwStartTime := Seconds()  
+SELF:__dwStartTime := Seconds()
 
-METHOD RunTimeOutput() AS STRING PASCAL CLASS P_Base  
+METHOD RunTimeOutput() AS STRING PASCAL CLASS P_Base
 // Gibt die Laufzeit in HH:MM:SS als String zurück
 return( SELF:StringDuration( SELF:dwRunTime * 60 ) )
 
@@ -678,20 +678,20 @@ else
 endif
 return( lSuccess )
 
-METHOD SetCargo( uFieldName AS USUAL, uValue AS USUAL ) AS VOID PASCAL CLASS P_Base  
-// Bsp: SetCargo( #MEMO, oRecord:FGet(#MEMO_TECH)) 
+METHOD SetCargo( uFieldName AS USUAL, uValue AS USUAL ) AS VOID PASCAL CLASS P_Base
+// Bsp: SetCargo( #MEMO, oRecord:FGet(#MEMO_TECH))
 SELF:SetArrayValue( uFieldName, uValue, SELF:__aCargo )
 
-METHOD GetCargo( uFieldName AS USUAL ) AS USUAL PASCAL CLASS P_Base     
+METHOD GetCargo( uFieldName AS USUAL ) AS USUAL PASCAL CLASS P_Base
 // Wird [uFieldName] nicht gefunden, so wird Nil zurück gegeben
 return( SELF:GetArrayValue( uFieldName, SELF:__aCargo ) )
 
-METHOD IsInCargo(  uFieldName AS USUAL ) AS INT PASCAL CLASS P_Base   
+METHOD IsInCargo(  uFieldName AS USUAL ) AS INT PASCAL CLASS P_Base
 // Liefert 0, wenn [uFieldName] nicht gefunden wurde
 return( SELF:isArrayField( uFieldName, SELF:__aCargo ) )
 
 METHOD IsCargoType( uFieldName AS USUAL, uMyValue AS USUAL ) AS LOGIC PASCAL CLASS P_Base
-// Prüft, ob der Typ des Eintrages zu [uFieldName] zu dem Typ der übergebenen 
+// Prüft, ob der Typ des Eintrages zu [uFieldName] zu dem Typ der übergebenen
 // Variable [uMyValue] passt.
 return( SELF:TypeOfArrayField( uFieldName, SELF:__aCargo ) == UsualType( uMyValue ) )
 
@@ -781,7 +781,7 @@ else
 	endif
 endif
 
-return( aArray )  
+return( aArray )
 
 METHOD TypeOfArrayField( uFieldName AS USUAL, aArray AS ARRAY ) AS DWord PASCAL CLASS P_Base
 return( UsualType( SELF:GetArrayValue( uFieldName, aArray ) ) )
@@ -808,11 +808,11 @@ return( cResult )
 
 METHOD ArrayToString( aArray AS ARRAY, cSeperator := ";" AS STRING ) AS STRING PASCAL CLASS P_Base
 // Ein Array (kann auch Mehrdimensional sein) mit Seperator in einen String schreiben
-// Beispiel: 
-// 		{ "(a)", "", "(c)","3" }   ---> "(a);;(c);3"  
+// Beispiel:
+// 		{ "(a)", "", "(c)","3" }   ---> "(a);;(c);3"
 // oder ein mehrdimens. Array:
 // 		{{1,2,3,"A"}, {1,3,2,"B"}} ---> "1;2;3;A
-//                                       1;3;2;B" 
+//                                       1;3;2;B"
 
 	LOCAL cResultString := ""            AS STRING
 	LOCAL x                              AS INT
@@ -903,30 +903,30 @@ endif
 return( aReturnRecord )
 
 METHOD ArrayFromSqlStatement( cStatement AS STRING, aColumns := nil REF ARRAY ) AS ARRAY PASCAL CLASS P_Base
-// Es wird ein mehrdim. Array mit den Inhalten zurückgegeben. Wurde [aColumns] nicht übergeben, 
+// Es wird ein mehrdim. Array mit den Inhalten zurückgegeben. Wurde [aColumns] nicht übergeben,
 // so werden die Spaltennamen als Array von SYMBOL zurückgegeben
 // [aColumns] REF-Return:  { #Spalte1, #Spalte2, #Spalte3 }
-// Return: { 
+// Return: {
 //         { "Inhalt", 10, 30 },
 //         { "Inhalt2", 12, 10 },
-//         } 
-//    
+//         }
+//
 	LOCAL oStatement               AS ASqlStatement
 	LOCAL aArray                   AS ARRAY
 	LOCAL aRowTemp                 AS ARRAY
-	
+
 aArray := {}
 oStatement := SELF:oTransactionManager:CreateStmt(cStatement)
 if( oStatement:Prepare() .and. oStatement:ExecuteReader() )
 	do while (oStatement:Fetch())
-		// Da die Spaltennamen bereits in aColumns stecken 
+		// Da die Spaltennamen bereits in aColumns stecken
 		// (reingegeben oder von GetSqlRecord erhalten)
 		// werden die Zeilen nur noch  mit den Inhalten benötigt
 		aRowTemp := SELF:GetSqlRecord( oStatement, aColumns )
 		aEVal( aRowTemp, { |a| aadd( aArray, a[2] ) } )
 		aadd( aArray, aRowTemp )
 	enddo
-else 
+else
 	SELF:MessageFormat( "Fehler beim Ausführen des Statements <#>. # ", { cStatement, oStatement:Status:GetMessage() }, PROT_ART_ERROR, TRUE )
 endif
 oStatement:Release()
@@ -2227,7 +2227,7 @@ METHOD GetReadRecordFromTable(symTable AS SYMBOL, aKeyFields AS ARRAY, cTableNam
 
 oRecord := NULL_OBJECT
 oServer := SELF:oTransactionManager:Open(symTable)
-if( !oServer:Used )
+if( IsNil(oServer) .or. !oServer:Used )
 	SELF:Message("Server "+Symbol2String(symTable)+" konnte nicht geöffnet werden. "+oServer:Status:GetMessage(), PROT_ART_ERROR, "", TRUE)
 else
 	for x:=1 upto ALen(aKeyFields)
@@ -3339,7 +3339,7 @@ return( cResult )
 METHOD StringReplace( cString AS STRING, cFind AS STRING, cReplace AS STRING ) AS STRING PASCAL CLASS P_Base
 // Suchen und Ersetzen eines Teil-Strings innerhalb eines Strings
 return( SELF:StringTranslate( cString, {{ cFind, cReplace }} ) )
- 
+
 METHOD StringMultiReplace( cString AS STRING, aReplaces AS ARRAY ) AS STRING PASCAL CLASS P_Base
 // aReplaces := {{ "a","b" }, { "1", "2" }}
 // Sucht die Vorkommen (1) und ersetzt diese durch (2)
