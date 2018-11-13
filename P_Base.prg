@@ -2448,8 +2448,10 @@ if( oStmt != NULL_OBJECT )
 	if( lWithHeader )
 		cMemo += Replicate( "-", 80 ) + CRLF
 	endif
+
+	oStmt:Release()
 endif
-oStmt:Release()
+
 return( cMemo )
 
 METHOD CreateCopyStatement( symAlias AS SYMBOL, cWhere AS STRING, aFieldReplaces AS ARRAY, lDefaultIfCopy := FALSE AS LOGIC ) AS LOGIC PASCAL CLASS P_Base
