@@ -175,7 +175,7 @@ SELF:ArrayImport(symKat, SELF:oBase:ArrayFromRecord( oRecord ) )
 METHOD StatementImport( symKat AS SYMBOL, oStatement AS ASqlStatement, nKeyPos := 1 AS INT, nValuePos := 2 AS INT  ) AS VOID PASCAL CLASS P_BaseCache
 
 do while( oStatement:Fetch() )
-	SELF:Put( symKat, oStatement:FGet(nKeyPos), oStatement:FGet(nValuePos) )
+	SELF:Put( symKat, oStatement:FGetPos(nKeyPos), oStatement:FGetPos(nValuePos) )
 enddo
 
 METHOD TableImport( symKat AS SYMBOL, cTableName AS STRING, symField1 AS SYMBOL, symField2 AS SYMBOL, cWhere := "" AS STRING ) AS VOID PASCAL CLASS P_BaseCache
