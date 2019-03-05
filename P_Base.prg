@@ -255,6 +255,10 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayCombine
 	DECLARE METHOD ArrayCompare
 	DECLARE METHOD ArrayKonvert
+	DECLARE METHOD ArraySerialize
+	DECLARE METHOD __ArraySerialize
+	DECLARE METHOD ArrayDeserialize
+	DECLARE METHOD __ArrayDeserialize
 	DECLARE METHOD ArrayToString
 	DECLARE METHOD ArrayStructureToString
 	DECLARE METHOD ArrayToDisk
@@ -281,6 +285,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD IsInConfigList
 
    /* String-Konvertierungen und Methoden */
+	DECLARE METHOD StringToUsual
 	DECLARE METHOD UsualTypeAsString
 	DECLARE METHOD UsualToString
 	DECLARE METHOD UsualToSymbol
@@ -288,7 +293,6 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD UsualInitialValue
 	DECLARE METHOD StringToArray
 	DECLARE METHOD StringToDisk
-	DECLARE METHOD StringToUsual
 	DECLARE METHOD StringToUnicode
 	DECLARE METHOD StringToCodeblock
 	DECLARE METHOD StringToXml
@@ -1194,13 +1198,17 @@ do case
 	case( UsualType(uVar) == DATE )
 		cTyp := "DATE"
 	case( UsualType(uVar) == FLOAT )
-		cTyp := "Float, Real4 oder Real8"
+		cTyp := "REAL"
 	case( UsualType(uVar) == LOGIC )
 		cTyp := "LOGIC"
 	case( UsualType(uVar) == LONGINT	)
-		cTyp := "Byte, Word, DWord, ShortInt, Int oder LongInt"
+		cTyp := "INT"
 	case( UsualType(uVar) == OBJECT )
-		cTyp := "OBJECT"
+		if( uVar == NULL_OBJECT )
+			cTyp := "NULL_OBJECT"
+		else
+			cTyp := "OBJECT"
+		endif
 	case( UsualType(uVar) == VOID )
 		cTyp := "NIL"
 	case( UsualType(uVar) == PTR )
@@ -1209,6 +1217,10 @@ do case
 		cTyp := "STRING"
 	case( UsualType(uVar) == SYMBOL )
 		cTyp := "SYMBOL"
+	case( isNil( uVar ) )
+		cTyp := "NIL"
+	case( uVar == NULL_OBJECT )
+		cTyp := "NULL_OBJECT"
 	otherwise
 		cTyp := "UNGÜLTIGER DATENTYP="+ValType(uVar)
 endcase
@@ -2227,7 +2239,7 @@ METHOD GetReadRecordFromTable(symTable AS SYMBOL, aKeyFields AS ARRAY, cTableNam
 
 oRecord := NULL_OBJECT
 oServer := SELF:oTransactionManager:Open(symTable)
-if( IsNil(oServer) .or. !oServer:Used )
+if( !oServer:Used )
 	SELF:Message("Server "+Symbol2String(symTable)+" konnte nicht geöffnet werden. "+oServer:Status:GetMessage(), PROT_ART_ERROR, "", TRUE)
 else
 	for x:=1 upto ALen(aKeyFields)
@@ -2448,10 +2460,8 @@ if( oStmt != NULL_OBJECT )
 	if( lWithHeader )
 		cMemo += Replicate( "-", 80 ) + CRLF
 	endif
-
-	oStmt:Release()
 endif
-
+oStmt:Release()
 return( cMemo )
 
 METHOD CreateCopyStatement( symAlias AS SYMBOL, cWhere AS STRING, aFieldReplaces AS ARRAY, lDefaultIfCopy := FALSE AS LOGIC ) AS LOGIC PASCAL CLASS P_Base
@@ -3033,8 +3043,15 @@ case( cTyp == "DATE" )
 	uValue := CToD(cString)
 case( cTyp == "INT" .or. cTyp == "LONGINT" )
 	uValue := INT(Val(cString))
-case( cTyp == "FLOAT" .or. cTyp == "REAL8" )
+case( cTyp == "FLOAT" .or. Left(cTyp,4) == "REAL" )
 	uValue := Val(cString)
+case( cTyp == "NULL_OBJECT" )
+	uValue := NULL_OBJECT
+case( cTyp == "OBJECT" )
+	/* Hier keine Wandlung möglich, also NULL_OBJECT */
+	uValue := NULL_OBJECT
+case( cTyp == "NIL" )
+	uValue := nil
 otherwise
 	/* Keine Konvertierung möglich */
 	uValue := ""
@@ -3092,6 +3109,9 @@ case( dwType == ARRAY )
 	cValue := SELF:ArrayStructureToString( uValue )
 case( IsNil(uValue) )
 	 cValue := ""
+case( dwType == OBJECT )
+	/* Object kann nur als NULL_OBJECT zurückgegeben werden */
+	cValue := "NULL_OBJECT"
 otherwise
     /* Keine Konvertierung möglich */
     cValue := ""
@@ -3377,6 +3397,188 @@ return( SELF:ArrayToString( aStrings, " ") )
 METHOD StringZero( nValue, nLen, nDec ) AS STRING PASCAL CLASS P_Base
 //Ersetzt alle " " durch "0"
 return( SELF:StringReplace( Str3( nValue,nLen,nDec), " ","0" ) )
+
+METHOD ArraySerialize( aArray AS ARRAY) AS STRING PASCAL CLASS P_Base
+/*
+
+	Wandeln eines Arrays (egal welchen Aufbau und wieviel Dimensionen) in eine XML-Struktur,
+	welche das Array komplett beschreibt (mit Type). So kann es in einem String oder in SQL abgelegt
+	werden und mit ArrayDeserialize wieder in ein Array gewandelt werden.
+
+	Array: {{"Finken", True, 1, 12.5}, {"Meyer", False, 2, 12.3}, #MEY, #UHU, FALSE, {"a","b","c", {1,2,3,nil,NULL_OBJECT}}}
+	-------------------------------------------------------------------------------------------------------------------------
+	<Structure Type="ARRAY" ORDER="1" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
+		<Element Type="STRING" ORDER="2" DEPT="2" INDEX="1" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">Finken</Element>
+		<Element Type="LOGIC" ORDER="3" DEPT="2" INDEX="2" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">TRUE</Element>
+		<Element Type="INT" ORDER="4" DEPT="2" INDEX="3" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">1</Element>
+		<Element Type="REAL" ORDER="5" DEPT="2" INDEX="4" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">12.5</Element>
+	</Structure>
+	<Structure Type="ARRAY" ORDER="6" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
+		<Element Type="STRING" ORDER="7" DEPT="2" INDEX="1" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">Meyer</Element>
+		<Element Type="LOGIC" ORDER="8" DEPT="2" INDEX="2" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">FALSE</Element>
+		<Element Type="INT" ORDER="9" DEPT="2" INDEX="3" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">2</Element>
+		<Element Type="REAL" ORDER="10" DEPT="2" INDEX="4" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">12.3</Element>
+	</Structure>
+	<Element Type="SYMBOL" ORDER="11" DEPT="1" INDEX="3" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">MEY</Element>
+	<Element Type="SYMBOL" ORDER="12" DEPT="1" INDEX="4" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">UHU</Element>
+	<Element Type="LOGIC" ORDER="13" DEPT="1" INDEX="5" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">FALSE</Element>
+	<Structure Type="ARRAY" ORDER="14" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
+		<Element Type="STRING" ORDER="15" DEPT="2" INDEX="1" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">a</Element>
+		<Element Type="STRING" ORDER="16" DEPT="2" INDEX="2" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">b</Element>
+		<Element Type="STRING" ORDER="17" DEPT="2" INDEX="3" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">c</Element>
+		<Structure Type="ARRAY" ORDER="18" DEPT="2" INDEX="6" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">
+			<Element Type="INT" ORDER="19" DEPT="3" INDEX="1" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">1</Element>
+			<Element Type="INT" ORDER="20" DEPT="3" INDEX="2" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">2</Element>
+			<Element Type="INT" ORDER="21" DEPT="3" INDEX="3" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">3</Element>
+			<Element Type="NIL" ORDER="22" DEPT="3" INDEX="4" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}"></Element>
+			<Element Type="NULL_OBJECT" ORDER="23" DEPT="3" INDEX="5" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}"></Element>
+		</Structure>
+	</Structure>
+*/
+	LOCAL nOrder       AS INT
+
+nOrder := 0
+return( "<Root>" + CRLF + SELF:__ArraySerialize( aArray, 0, @nOrder,1, NewID() ) + "</Root>"+CRLF )
+
+PROTECT METHOD __ArraySerialize( aArray AS ARRAY, nDept AS INT, nOrder REF INT, nIndex AS INT, cGuid AS STRING ) AS STRING PASCAL CLASS P_Base
+
+ 	LOCAL cXML := ""          AS STRING
+	LOCAL x                   AS INT
+
+nDept += 1
+nOrder += 1
+
+for x:= 1 upto aLen(aArray)
+	do case
+	case( UsualType(aArray[x]) == ARRAY )
+		cXml += '<Structure Type="ARRAY" ORDER="'+NTrim(nOrder)+'" DEPT="'+NTrim(nDept)+'" INDEX="'+NTrim(nIndex)+'" GUID="'+cGuid+'">'+CRLF
+		cXML += SELF:__ArraySerialize( aArray[x], nDept, @nOrder, x, NewID() )
+		cXml += "</Structure>"+CRLF
+	otherwise
+		// <Element Type="STRING">Meyer</Element>
+		cXml += '	<Element Type="' + SELF:UsualTypeAsString( aArray[x] ) + '"' +;
+		' ORDER="'+NTrim(nOrder)+'" DEPT="'+NTrim(nDept)+'" INDEX="'+NTrim(x)+'" GUID="'+cGuid+'">' +;
+			 SELF:StringToXml(SELF:UsualToString( aArray[x] )) +;
+			 '</Element>' + CRLF
+		nOrder++
+	endcase
+next x
+return( cXML )
+
+METHOD ArrayDeserialize( cXml AS STRING ) AS ARRAY PASCAL CLASS P_Base
+// Geht nur mit XML, welches über ArrayToXml erzeugt wurde.
+// Es werden auch die ursprünglichen Typen (STRING; INT; LOGIC; etc.) wiederhergestellt
+
+	LOCAL aArray                AS ARRAY
+	LOCAL oStmt                 AS ASqlStatement
+	LOCAL cNodeName, cNodeType  AS STRING
+	LOCAL cNodeValue, cGuid     AS STRING
+	LOCAL nOrder, nDept, nIndex AS INT
+	LOCAL aXML                  AS ARRAY
+
+aXML := {}
+oStmt := SELF:CreateSqlStatement( "select RowNumber, NodeName, NodeType, XPath, Value from [ufn_XmlToTable] ('"+cXml+"') where NodeName != 'Root'" , "Fehler beim wandeln von XML-Daten via SQL")
+if( oStmt != NULL_OBJECT )
+	// Skip <Root>
+	oStmt:Fetch()
+	while( oStmt:Fetch() )
+		cNodeName  := oStmt:FGetN(#NodeName)
+		cNodeValue := SELF:StringFromXml(oStmt:FGetN(#Value))
+		oStmt:Fetch()
+		cNodeType := oStmt:FGetN(#Value)
+		oStmt:Fetch()
+		nOrder := Val(oStmt:FGetN(#Value))
+		oStmt:Fetch()
+		nDept := Val(oStmt:FGetN(#Value))
+		oStmt:Fetch()
+		nIndex := Val(oStmt:FGetN(#Value))
+		oStmt:Fetch()
+		cGuid := oStmt:FGetN(#Value)
+		aadd( aXml, { cNodeName, cNodeType, cNodeValue, nOrder, nDept, nIndex, cGuid })
+	enddo
+	oStmt:Release()
+
+    aXml := aSort( aXml,,, { |a,b| a[4] <= b[4] } )
+	debugprintarray( aXml )
+    /*
+    	Wir haben nun fogenden Aufbau:
+		 01:A[24]
+		   |__ 01:A[6]
+		   |     |__ 01:C[9] = "Structure"
+		   |     |__ 02:C[5] = "ARRAY"
+		   |     |__ 03:C[0] = ""
+		   |     |__ 04:N = 1
+		   |     |__ 05:N = 0
+		   |     |__ 06:N = 1
+		   |__ 01:A[6]
+		   |     |__ 01:C[9] = "Structure"
+		   |     |__ 02:C[5] = "ARRAY"
+		   |     |__ 03:C[0] = ""
+		   |     |__ 04:N = 2
+		   |     |__ 05:N = 1
+		   |     |__ 06:N = 1
+		   |__ 01:A[6]
+		   |     |__ 01:C[7] = "Element"
+		   |     |__ 02:C[6] = "STRING"
+		   |     |__ 03:C[6] = "Finken"
+		   |     |__ 04:N = 3
+		   |     |__ 05:N = 2
+		   |     |__ 06:N = 1
+		   |__ 01:A[6]
+		   |     |__ 01:C[7] = "Element"
+		   |     |__ 02:C[5] = "LOGIC"
+		   |     |__ 03:C[4] = "TRUE"
+		   |     |__ 04:N = 4
+		   |     |__ 05:N = 2
+		   |     |__ 06:N = 2
+	*/
+
+	aArray := {}
+	nOrder := 1
+	SELF:__ArrayDeserialize( aArray, @nOrder, aXml )
+
+	debugprintarray(aArray)
+endif
+
+return( aArray )
+
+METHOD __ArrayDeserialize( aArray AS ARRAY, nOrder REF INT, aXml AS ARRAY) AS ARRAY PASCAL CLASS P_Base
+
+	LOCAL aTemp           AS ARRAY
+    LOCAL nDept           AS INT
+    LOCAL x := 0          AS INT
+    LOCAL cGuid           AS STRING
+
+aTemp := {}
+nDept := aXml[nOrder][5]
+cGuid := aXml[nOrder][7]
+
+aeVal( aXml, { |a| x += iif( a[7] == cGuid, 1, 0 ) } )
+debugPrint( "FIN: ", __ENT, __LINE__, "Dept: ", nDept, "Fields: ", x, "() -> ", nOrder )
+
+aFill( aTemp, nil, 1, x )
+
+do while( nOrder <= aLen(aXml) )
+	if( aXml[nOrder][1] == "Structure" )
+		nOrder++
+		aadd( aTemp, SELF:__ArrayDeserialize( {}, @nOrder, aXml ))
+	else
+		do while( nOrder <= aLen(aXml) .and. aXml[nOrder][1] != "Structure" )
+			aadd( aArray, SELF:StringToUsual( aXml[nOrder][3], aXml[nOrder][2] ))
+			nOrder++
+
+			if( nOrder <= aLen(aXml) )
+				if( aXml[nOrder][5] < aXml[nOrder-1][5] )
+					exit
+				endif
+			else
+				exit
+			endif
+		end
+	endif
+enddo
+
+return( aArray )
 
 METHOD StringToXml( cString AS STRING ) AS STRING PASCAL CLASS P_Base
 // Nimmt die Sonderzeichen aus dem String und mach XML-Konforme Ausdrücke davon
