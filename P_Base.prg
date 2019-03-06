@@ -324,6 +324,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD DateAdd
 
 	DECLARE METHOD NumericBuilder
+	DECLARE METHOD StringBuilder
 	DECLARE METHOD Divide
 	DECLARE METHOD HasDecimals
 	DECLARE METHOD GetDecimals
@@ -3405,35 +3406,46 @@ METHOD ArraySerialize( aArray AS ARRAY) AS STRING PASCAL CLASS P_Base
 	welche das Array komplett beschreibt (mit Type). So kann es in einem String oder in SQL abgelegt
 	werden und mit ArrayDeserialize wieder in ein Array gewandelt werden.
 
-	Array: {{"Finken", True, 1, 12.5}, {"Meyer", False, 2, 12.3}, #MEY, #UHU, FALSE, {"a","b","c", {1,2,3,nil,NULL_OBJECT}}}
 	-------------------------------------------------------------------------------------------------------------------------
-	<Structure Type="ARRAY" ORDER="1" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
-		<Element Type="STRING" ORDER="2" DEPT="2" INDEX="1" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">Finken</Element>
-		<Element Type="LOGIC" ORDER="3" DEPT="2" INDEX="2" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">TRUE</Element>
-		<Element Type="INT" ORDER="4" DEPT="2" INDEX="3" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">1</Element>
-		<Element Type="REAL" ORDER="5" DEPT="2" INDEX="4" GUID="{6EF90E5E-3CAD-4659-90F4-46DCB3490C5B}">12.5</Element>
-	</Structure>
-	<Structure Type="ARRAY" ORDER="6" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
-		<Element Type="STRING" ORDER="7" DEPT="2" INDEX="1" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">Meyer</Element>
-		<Element Type="LOGIC" ORDER="8" DEPT="2" INDEX="2" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">FALSE</Element>
-		<Element Type="INT" ORDER="9" DEPT="2" INDEX="3" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">2</Element>
-		<Element Type="REAL" ORDER="10" DEPT="2" INDEX="4" GUID="{738FE93F-97E3-4291-AF29-828E73E3274B}">12.3</Element>
-	</Structure>
-	<Element Type="SYMBOL" ORDER="11" DEPT="1" INDEX="3" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">MEY</Element>
-	<Element Type="SYMBOL" ORDER="12" DEPT="1" INDEX="4" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">UHU</Element>
-	<Element Type="LOGIC" ORDER="13" DEPT="1" INDEX="5" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">FALSE</Element>
-	<Structure Type="ARRAY" ORDER="14" DEPT="1" INDEX="1" GUID="{0F94D3D5-93A6-4FB0-8FD5-A6EE1EA836B9}">
-		<Element Type="STRING" ORDER="15" DEPT="2" INDEX="1" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">a</Element>
-		<Element Type="STRING" ORDER="16" DEPT="2" INDEX="2" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">b</Element>
-		<Element Type="STRING" ORDER="17" DEPT="2" INDEX="3" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">c</Element>
-		<Structure Type="ARRAY" ORDER="18" DEPT="2" INDEX="6" GUID="{B69C99EA-A55D-418E-9C35-E38BBA0F2F34}">
-			<Element Type="INT" ORDER="19" DEPT="3" INDEX="1" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">1</Element>
-			<Element Type="INT" ORDER="20" DEPT="3" INDEX="2" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">2</Element>
-			<Element Type="INT" ORDER="21" DEPT="3" INDEX="3" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}">3</Element>
-			<Element Type="NIL" ORDER="22" DEPT="3" INDEX="4" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}"></Element>
-			<Element Type="NULL_OBJECT" ORDER="23" DEPT="3" INDEX="5" GUID="{7154F594-2181-40AA-8481-B9065C9886E4}"></Element>
+	Beispiel :
+	aArray := {{"Finken", True, 1, 12.5}, {"Meyer", False, 2, 12.3}, #MEY, #UHU, FALSE, {"a","b","c", {1,2,3,nil,NULL_OBJECT}}}
+	oBase := P_Base{}
+	cXml := oBase:ArraySerialize(aArray)
+	debugPrint( "FIN: ", __ENT, __LINE__, cXml )
+	aArray2 := oBase:ArrayDeserialize(cXml)
+	debugprintArray(aArray)
+	debugPrint( "FIN: ", __ENT, __LINE__, "Compare: ", oBase:ArrayCompare( aArray, aArray ) ) -> Liefert TRUE
+	oBase:Release()
+	-------------------------------------------------------------------------------------------------------------------------
+	 <Root>
+		<Structure Type="ARRAY" ORDER="1" DEPT="1" INDEX="1" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">
+			<Element Type="STRING" ORDER="2" DEPT="2" INDEX="1" GUID="{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}">Finken</Element>
+			<Element Type="LOGIC" ORDER="3" DEPT="2" INDEX="2" GUID="{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}">TRUE</Element>
+			<Element Type="INT" ORDER="4" DEPT="2" INDEX="3" GUID="{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}">1</Element>
+			<Element Type="REAL" ORDER="5" DEPT="2" INDEX="4" GUID="{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}">12.5</Element>
 		</Structure>
-	</Structure>
+		<Structure Type="ARRAY" ORDER="6" DEPT="1" INDEX="1" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">
+			<Element Type="STRING" ORDER="7" DEPT="2" INDEX="1" GUID="{F2115865-6738-4317-8866-DAAB5FD8AA18}">Meyer</Element>
+			<Element Type="LOGIC" ORDER="8" DEPT="2" INDEX="2" GUID="{F2115865-6738-4317-8866-DAAB5FD8AA18}">FALSE</Element>
+			<Element Type="INT" ORDER="9" DEPT="2" INDEX="3" GUID="{F2115865-6738-4317-8866-DAAB5FD8AA18}">2</Element>
+			<Element Type="REAL" ORDER="10" DEPT="2" INDEX="4" GUID="{F2115865-6738-4317-8866-DAAB5FD8AA18}">12.3</Element>
+		</Structure>
+		<Element Type="SYMBOL" ORDER="11" DEPT="1" INDEX="3" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">MEY</Element>
+		<Element Type="SYMBOL" ORDER="12" DEPT="1" INDEX="4" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">UHU</Element>
+		<Element Type="LOGIC" ORDER="13" DEPT="1" INDEX="5" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">FALSE</Element>
+		<Structure Type="ARRAY" ORDER="14" DEPT="1" INDEX="1" GUID="{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}">
+			<Element Type="STRING" ORDER="15" DEPT="2" INDEX="1" GUID="{08D33CB7-A2E7-4E87-BFAE-DBA051F1C6BE}">a</Element>
+			<Element Type="STRING" ORDER="16" DEPT="2" INDEX="2" GUID="{08D33CB7-A2E7-4E87-BFAE-DBA051F1C6BE}">b</Element>
+			<Element Type="STRING" ORDER="17" DEPT="2" INDEX="3" GUID="{08D33CB7-A2E7-4E87-BFAE-DBA051F1C6BE}">c</Element>
+			<Structure Type="ARRAY" ORDER="18" DEPT="2" INDEX="6" GUID="{08D33CB7-A2E7-4E87-BFAE-DBA051F1C6BE}">
+				<Element Type="INT" ORDER="19" DEPT="3" INDEX="1" GUID="{22734FA8-A71F-49AA-928C-1933BDD0389F}">1</Element>
+				<Element Type="INT" ORDER="20" DEPT="3" INDEX="2" GUID="{22734FA8-A71F-49AA-928C-1933BDD0389F}">2</Element>
+				<Element Type="INT" ORDER="21" DEPT="3" INDEX="3" GUID="{22734FA8-A71F-49AA-928C-1933BDD0389F}">3</Element>
+				<Element Type="NIL" ORDER="22" DEPT="3" INDEX="4" GUID="{22734FA8-A71F-49AA-928C-1933BDD0389F}"></Element>
+				<Element Type="NULL_OBJECT" ORDER="23" DEPT="3" INDEX="5" GUID="{22734FA8-A71F-49AA-928C-1933BDD0389F}"></Element>
+			</Structure>
+		</Structure>
+	</Root>
 */
 	LOCAL nOrder       AS INT
 
@@ -3477,7 +3489,7 @@ METHOD ArrayDeserialize( cXml AS STRING ) AS ARRAY PASCAL CLASS P_Base
 	LOCAL aXML                  AS ARRAY
 
 aXML := {}
-oStmt := SELF:CreateSqlStatement( "select RowNumber, NodeName, NodeType, XPath, Value from [ufn_XmlToTable] ('"+cXml+"') where NodeName != 'Root'" , "Fehler beim wandeln von XML-Daten via SQL")
+oStmt := SELF:CreateSqlStatement( "select RowNumber, NodeName, NodeType, XPath, Value from [ufn_XmlToTable] ('"+cXml+"')" , "Fehler beim wandeln von XML-Daten via SQL")
 if( oStmt != NULL_OBJECT )
 	// Skip <Root>
 	oStmt:Fetch()
@@ -3502,81 +3514,90 @@ if( oStmt != NULL_OBJECT )
 	debugprintarray( aXml )
     /*
     	Wir haben nun fogenden Aufbau:
-		 01:A[24]
-		   |__ 01:A[6]
+    	{{Name, Type, Value, Order, Dept, Index, Guid},...
+
+		 01:A[23]
+		   |__ 01:A[7]
 		   |     |__ 01:C[9] = "Structure"
 		   |     |__ 02:C[5] = "ARRAY"
 		   |     |__ 03:C[0] = ""
 		   |     |__ 04:N = 1
-		   |     |__ 05:N = 0
-		   |     |__ 06:N = 1
-		   |__ 01:A[6]
-		   |     |__ 01:C[9] = "Structure"
-		   |     |__ 02:C[5] = "ARRAY"
-		   |     |__ 03:C[0] = ""
-		   |     |__ 04:N = 2
 		   |     |__ 05:N = 1
 		   |     |__ 06:N = 1
-		   |__ 01:A[6]
+		   |     |__ 07:C[38] = "{4FED4BA9-2CB9-49B8-AA23-C6B9EF8DEA15}"
+		   |__ 01:A[7]
 		   |     |__ 01:C[7] = "Element"
 		   |     |__ 02:C[6] = "STRING"
 		   |     |__ 03:C[6] = "Finken"
-		   |     |__ 04:N = 3
+		   |     |__ 04:N = 2
 		   |     |__ 05:N = 2
 		   |     |__ 06:N = 1
-		   |__ 01:A[6]
+		   |     |__ 07:C[38] = "{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}"
+		   |__ 01:A[7]
 		   |     |__ 01:C[7] = "Element"
 		   |     |__ 02:C[5] = "LOGIC"
 		   |     |__ 03:C[4] = "TRUE"
-		   |     |__ 04:N = 4
+		   |     |__ 04:N = 3
 		   |     |__ 05:N = 2
 		   |     |__ 06:N = 2
+		   |     |__ 07:C[38] = "{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}"
+		   |__ 01:A[7]
+		   |     |__ 01:C[7] = "Element"
+		   |     |__ 02:C[3] = "INT"
+		   |     |__ 03:C[1] = "1"
+		   |     |__ 04:N = 4
+		   |     |__ 05:N = 2
+		   |     |__ 06:N = 3
+		   |     |__ 07:C[38] = "{E9CCF467-5E3A-49C0-BC11-D8FA853C8988}"
 	*/
 
-	aArray := {}
-	nOrder := 1
-	SELF:__ArrayDeserialize( aArray, @nOrder, aXml )
-
-	debugprintarray(aArray)
+	aArray := SELF:__ArrayDeserialize( 1, aXml )
 endif
 
 return( aArray )
 
-METHOD __ArrayDeserialize( aArray AS ARRAY, nOrder REF INT, aXml AS ARRAY) AS ARRAY PASCAL CLASS P_Base
+METHOD __ArrayDeserialize( nOrder AS INT, aXml AS ARRAY) AS ARRAY PASCAL CLASS P_Base
 
-	LOCAL aTemp           AS ARRAY
-    LOCAL nDept           AS INT
+	LOCAL _NodeName_, _NodeType_, _NodeValue_, _NodeOrder_, _NodeDept_, _NodeIndex_, _NodeGuid_ AS INT
+	LOCAL aArray          AS ARRAY
+	LOCAL aContent        AS ARRAY
     LOCAL x := 0          AS INT
     LOCAL cGuid           AS STRING
 
-aTemp := {}
-nDept := aXml[nOrder][5]
-cGuid := aXml[nOrder][7]
+	/* Konstanten */
+	_NodeName_  := 1
+	_NodeType_  := 2
+	_NodeValue_ := 3
+	_NodeOrder_ := 4
+	_NodeDept_  := 5
+	_NodeIndex_ := 6
+	_NodeGuid_  := 7
 
-aeVal( aXml, { |a| x += iif( a[7] == cGuid, 1, 0 ) } )
-debugPrint( "FIN: ", __ENT, __LINE__, "Dept: ", nDept, "Fields: ", x, "() -> ", nOrder )
+aArray := {}
 
-aFill( aTemp, nil, 1, x )
+if( nOrder <= aLen( aXml ) )
+	cGuid := aXml[nOrder][_NodeGuid_]
+	aContent := {}
+	/* Alle passenden Einträge zur Guid */
+	for x:=1 upto aLen(aXml)
+		if( aXml[x][_NodeGuid_] == cGuid )
+			aadd( aContent, aXml[x] )
+		endif
+	next x
 
-do while( nOrder <= aLen(aXml) )
-	if( aXml[nOrder][1] == "Structure" )
-		nOrder++
-		aadd( aTemp, SELF:__ArrayDeserialize( {}, @nOrder, aXml ))
-	else
-		do while( nOrder <= aLen(aXml) .and. aXml[nOrder][1] != "Structure" )
-			aadd( aArray, SELF:StringToUsual( aXml[nOrder][3], aXml[nOrder][2] ))
-			nOrder++
+	/* Nur wenn min. 1 Element in der Struktur ist */
+	if( aLen( aContent ) >= 1 )
+		aSize( aArray, aLen(aContent) )
 
-			if( nOrder <= aLen(aXml) )
-				if( aXml[nOrder][5] < aXml[nOrder-1][5] )
-					exit
-				endif
+		for x:=1 upto aLen(aContent)
+			if( aContent[x][_NodeName_] == "Structure" )
+				aArray[x] := SELF:__ArrayDeserialize( aContent[x][_NodeOrder_]+1, aXml )
 			else
-				exit
+				aArray[x] := SELF:StringToUsual( SELF:StringFromXml(aContent[x][_NodeValue_]), aContent[x][_NodeType_] )
 			endif
-		end
+		next x
 	endif
-enddo
+endif
 
 return( aArray )
 
@@ -4493,6 +4514,44 @@ if( !Empty( cStatus ) )
 endif
 
 return( cDocID )
+
+METHOD StringBuilder( aParam AS ARRAY, cbDivider := nil AS CODEBLOCK, cbSubDivider := nil AS CODEBLOCK ) AS STRING PASCAL CLASS P_Base
+/*
+	cbDivider    = { |paramAsString, paramTypeAsString, lLastElement| "ResultString" }
+	cbSubDivider = { |aSubArrayAsString| "ResultString" }
+
+	Beispiel:
+	aArray := {"Fin", 1, 2, 3, #FIN, {"a", "b","c"},4}
+	cbDivider := { |paramAsString, paramTypeAsString, lLastElement| iif( paramTypeAsString=="STRING", '"'+paramAsString+'"', iif( paramTypeAsString=="SYMBOL", "#"+paramAsString, paramAsString) )+iif(lLastElement, "", ",") }
+	cbSubDivider := { |subAsString| "{" + subAsString + "}" }
+	SELF:StringBuilder( aArray, cbDivider, cbSubDivider ) --> '"Fin", 1, 2, 3,#FIN ,{"a", "b", "c"},4'
+
+*/
+	LOCAl x                AS INT
+	LOCAL cString := ""    AS STRING
+	LOCAL cSubString       AS STRING
+
+for x:=1 upto aLen(aParam)
+
+	/* SubElement-Divider */
+	if( UsualType(aParam[x]) == ARRAY )
+		cSubString := SELF:StringBuilder( aParam[x], cbDivider, cbSubDivider )
+		if( !IsNil(cbSubDivider) )
+			cSubString := eVal( cbSubDivider, cSubString )
+		endif
+	else
+		cSubString := SELF:UsualToString( aParam[x] )
+	endif
+
+	/* Element-Divider */
+	if( !IsNil(cbDivider) )
+		cSubString := eVal( cbDivider, cSubString, SELF:UsualTypeAsString( aParam[x] ), x==aLen(aParam) )
+	endif
+
+	cString += cSubString
+next x
+
+return( cString )
 
 METHOD NumericBuilder ( nValue AS REAL8, cbCodeBlock AS CODEBLOCK ) AS REAL8 PASCAL CLASS P_Base
 // Hilft beim Aufbau eines numerischen WErtes.
