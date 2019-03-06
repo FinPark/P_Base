@@ -324,6 +324,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD DateAdd
 
 	DECLARE METHOD NumericBuilder
+	DECLARE METHOD ComplexStringBuilder
 	DECLARE METHOD StringBuilder
 	DECLARE METHOD Divide
 	DECLARE METHOD HasDecimals
@@ -819,6 +820,7 @@ METHOD ArrayToString( aArray AS ARRAY, cSeperator := ";" AS STRING ) AS STRING P
 // 		{{1,2,3,"A"}, {1,3,2,"B"}} ---> "1;2;3;A
 //                                       1;3;2;B"
 
+/*
 	LOCAL cResultString := ""            AS STRING
 	LOCAL x                              AS INT
 
@@ -837,6 +839,11 @@ if( !Empty(cResultString) )
 	cResultString := Left( cResultString, Len(cResultString) - Len(cSeperator) )
 endif
 return( cResultString )
+*/
+
+/* Vorangehenden Code ersetzt durch StringBuilder */
+return( SELF:StringBuilder( aArray, cSeperator ) )
+
 
 METHOD ArrayToDisk( cFileName AS STRING, aArray AS ARRAY, cDelimiter := ";" AS STRING ) AS LOGIC PASCAL CLASS P_BAse
 //
@@ -4177,7 +4184,10 @@ METHOD PrepareCodeBlock( cbCodeblock AS USUAL, cbCodeBlockStandard AS USUAL) AS 
 // Prüft einen Codeblock, setzt ggf. einen Standardcodeblock ein und wird Meldungen raus bevor der ganze VO zu Grunde geht :)
 	LOCAL lOK := TRUE
 
-cbCodeBlock := IfNil( cbCodeBlock, cbCodeBlockStandard )
+if( IsNil( cbCodeBlock ) .or. cbCodeBlock == NULL_CODEBLOCK )
+	cbCodeBlock := cbCodeBlockStandard
+endif
+
 if( IsNil(cbCodeblock) )
 	SELF:MessageFormat( "Übergebener Codeblock ist nil! Format = #.", { SELF:UsualTypeAsString(cbCodeblock) }, PROT_ART_ERROR, TRUE )
 elseif( ValType(cbCodeblock) != "B" )
@@ -4515,7 +4525,14 @@ endif
 
 return( cDocID )
 
-METHOD StringBuilder( aParam AS ARRAY, cbDivider := nil AS CODEBLOCK, cbSubDivider := nil AS CODEBLOCK ) AS STRING PASCAL CLASS P_Base
+METHOD StringBuilder( aParam AS ARRAY, cSeperator := ";" AS STRING ) AS STRING PASCAL CLASS P_Base
+/*
+	Liefert bei einem <aParam> von {"FIN",#MEY,1,2,3,{"a","b","c"},4,{},5} folgenden String:
+	"FIN;MEY;1;2;3;a;b;c;4;;5"
+*/
+return( SELF:ComplexStringBuilder( aParam, { |paramAsString, paramTypeAsString, lLastElement| paramAsString + iif( !lLastElement, cSeperator, "" ) }))
+
+METHOD ComplexStringBuilder( aParam AS ARRAY, cbDivider := nil AS CODEBLOCK, cbSubDivider := nil AS CODEBLOCK ) AS STRING PASCAL CLASS P_Base
 /*
 	cbDivider    = { |paramAsString, paramTypeAsString, lLastElement| "ResultString" }
 	cbSubDivider = { |aSubArrayAsString| "ResultString" }
@@ -4531,22 +4548,21 @@ METHOD StringBuilder( aParam AS ARRAY, cbDivider := nil AS CODEBLOCK, cbSubDivid
 	LOCAL cString := ""    AS STRING
 	LOCAL cSubString       AS STRING
 
+cbDivider    := SELF:PrepareCodeBlock( cbDivider, { |paramAsString, paramTypeAsString, lLastElement| paramAsString } )
+cbSubDivider := SELF:PrepareCodeBlock( cbSubDivider, { |cSubArrayAsString| cSubArrayAsString } )
+
 for x:=1 upto aLen(aParam)
 
 	/* SubElement-Divider */
 	if( UsualType(aParam[x]) == ARRAY )
-		cSubString := SELF:StringBuilder( aParam[x], cbDivider, cbSubDivider )
-		if( !IsNil(cbSubDivider) )
-			cSubString := eVal( cbSubDivider, cSubString )
-		endif
+		cSubString := SELF:ComplexStringBuilder( aParam[x], cbDivider, cbSubDivider )
+		cSubString := eVal( cbSubDivider, cSubString )
 	else
 		cSubString := SELF:UsualToString( aParam[x] )
 	endif
 
 	/* Element-Divider */
-	if( !IsNil(cbDivider) )
-		cSubString := eVal( cbDivider, cSubString, SELF:UsualTypeAsString( aParam[x] ), x==aLen(aParam) )
-	endif
+	cSubString := eVal( cbDivider, cSubString, SELF:UsualTypeAsString( aParam[x] ), x==aLen(aParam) )
 
 	cString += cSubString
 next x
