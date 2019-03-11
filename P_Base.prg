@@ -160,6 +160,8 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD LinkDocument
 	DECLARE METHOD SqlTableHasRecords
 	DECLARE METHOD GetRowsProcessed
+	DECLARE METHOD RecordProtocolChanges
+	DECLARE METHOD RecordCompare
 
 	/* Datensätze sperren */
 	DECLARE METHOD RecordLock
@@ -254,6 +256,9 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayChangeDimension
 	DECLARE METHOD ArrayCombine
 	DECLARE METHOD ArrayCompare
+	DECLARE METHOD ArrayModify
+	DECLARE METHOD ArrayKeyToString
+	DECLARE METHOD ArrayKeyToSymbol
 	DECLARE METHOD ArrayKonvert
 	DECLARE METHOD ArraySerialize
 	DECLARE METHOD __ArraySerialize
@@ -335,6 +340,15 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD GetKomplexConfigParameter
 	DECLARE METHOD RenameKeyField
 	DECLARE METHOD ReleaseIfNotNullObject
+
+	/* Cache */
+	DECLARE METHOD CacheAdd
+	DECLARE METHOD CacheDel
+	DECLARE METHOD CacheGet
+	DECLARE METHOD CachePos
+	DECLARE METHOD CacheExists
+	DECLARE METHOD CacheImportArray
+	DECLARE METHOD CacheImportRecord
 
 	/* Debug und Performance */
 	DECLARE METHOD DbgMessage
@@ -719,6 +733,67 @@ endif
 
 return( aArray )
 
+METHOD CacheAdd( symKat AS SYMBOL, symKey AS SYMBOL, uValue AS USUAL ) AS VOID PASCAL CLASS P_Base
+/*
+  	Fügt einen Eintrag dem Cache hinzu, bzw. überschreibt einen alten Eintrag, wenn bereits vorhanden
+*/
+	LOCAL nPos         AS INT
+
+nPos := SELF:CachePos( symKat, symKey )
+if( nPos != 0 )
+	SELF:__aCache[nPos][3] := uValue
+else
+	aadd( SELF:__aCache, { symKat, symKey, uValue } )
+endif
+
+METHOD CacheGet( symKat AS SYMBOL, symKey AS SYMBOL, uInitValue := nil AS USUAL ) AS USUAL PASCAL CLASS P_Base
+
+	LOCAL nPos            AS INT
+
+nPos := SELF:CachePos( symKat, symKey )
+if( nPos != 0 )
+	return( SELF:__aCache[nPos][3] )
+else
+	return( uInitValue )
+endif
+
+METHOD CacheDel( symKat := nil AS SYMBOL, symKey := nil AS SYMBOL ) AS VOID PASCAL CLASS P_Base
+
+	LOCAL nPos             AS INT
+
+if( isNil( symKat ) )
+	SELF:__aCache := {}
+else
+	do while( (nPos := SELF:CachePos( symKat, symKey)) != 0 )
+		ADelShrink( SELF:__aCache, nPos )
+	enddo
+endif
+
+
+METHOD CachePos( symKat AS SYMBOL, symKey := nil AS SYMBOL ) AS INT PASCAL CLASS P_Base
+return( aScan( SELF:__aCache, { |a| a[1] == symKat .and. (isNil(symKey) .or. a[2] == symKey) } ) )
+
+METHOD CacheExists( symKat AS SYMBOL, symKey AS SYMBOL ) AS LOGIC PASCAL CLASS P_Base
+return( SELF:CachePos( symKat, symKey ) != 0 )
+
+METHOD CacheImportArray( symKat AS SYMBOL, aArray AS ARRAY ) AS VOID PASCAL CLASS P_Base
+
+	LOCAL x           AS INT
+
+/* Fehlerprüfung, ob Array den richtigen Aufbau hat */
+if( aLen( aArray ) > 0 )
+	if( UsualType(aArray[1]) != ARRAY .or. aLen(aArray[1]) < 2 .or. UsualType(aArray[1][1]) != SYMBOL )
+		SELF:Message("CacheImportArray: Das Array hat ein falsches Format. Benötigtes Format: { {#KEY, uValue},{#KEY, uValue}... }", "E",, TRUE )
+		return
+	endif
+endif
+
+for x:=1 upto aLen( aArray )
+	SELF:CacheAdd( symKat, aArray[x][1], aArray[x][2] )
+next x
+
+METHOD CacheImportRecord( symKat AS SYMBOL, oRecord AS AReadRecord ) AS VOID PASCAL CLASS P_Base
+SELF:CacheImportArray( symKat, SELF:ArrayFromRecord( oRecord ) )
 
 METHOD GetArrayValue( uFieldName AS USUAL, aArray AS ARRAY ) AS USUAL PASCAL CLASS P_Base
 // <uFieldName> kann als Symbol oder als String übergeben werden.
@@ -1259,6 +1334,19 @@ endcase
 
 return( cSqlType )
 
+METHOD RecordProtocolChanges( oOldRecord AS AReadRecord, oNewRecord AS AReadRecord ) AS ARRAY PASCAL CLASS P_Base
+
+	LOCAL aArray             AS ARRAY
+	LOCAL aValues            AS ARRAY
+	LOCAL x                  AS INT
+
+aValues := {}
+aArray := SELF:ArrayFromRecord( oNewRecord )
+for x:=1 upto aLen( aArray )
+	aadd( aValues, { aArray[x][1], "", aArray[x][2] } )
+next x
+return( SELF:ArrayProtocolChanges( aArray, oOldRecord ) )
+
 METHOD ArrayProtocolChanges( aValues AS ARRAY, oRecordOrServer AS USUAL, lNoDoku := FALSE AS LOGIC ) AS ARRAY PASCAL CLASS P_Base      // aLen() = 0 --> keine Änderungen vorhanden
 // Änderungen an Werten protokollieren.
 // Das Array aValues muss dafür einen bestimmten aufbau haben:
@@ -1638,6 +1726,29 @@ if( aDefines != nil )
 	next x
 endif
 return( aArray )
+
+METHOD ArrayModify( aArray AS ARRAY, cbModifyCodeBlock AS CODEBLOCK ) AS ARRAY PASCAL CLASS P_Base
+/*
+	Es können Array-Einträge modifiziert werden:
+	{ |a| a[1] := Sybol2String(a[1]) }
+
+*/
+aEVal( aArray, cbModifyCodeBlock )
+return( aArray )
+
+METHOD ArrayKeyToString( aArray AS ARRAY ) AS ARRAY PASCAL CLASS P_Base
+
+	LOCAL oSelf           AS P_Base
+
+oSelf := SELF
+return( SELF:ArrayModify( aArray, { |aElement| aElement[1] := oSelf:UsualToString( aElement ) } ) )
+
+METHOD ArrayKeyToSymbol( aArray AS ARRAY ) AS ARRAY PASCAL CLASS P_Base
+
+	LOCAL oSelf           AS P_Base
+
+oSelf := SELF
+return( SELF:ArrayModify( aArray, { |aElement| aElement[1] := oSelf:UsualToSymbol( aElement ) } ) )
 
 METHOD ArrayCombine( aFirstArray AS ARRAY, aSecondArray AS ARRAY ) AS ARRAY PASCAL CLASS P_Base
 // Fügt das <aSecondArray> an das <aFirstArray> an und gibt das kombinierte Array zurück
@@ -4606,6 +4717,8 @@ return( nValue )
 METHOD ArrayCompare( aArray1 AS ARRAY, aArray2 AS ARRAY ) AS LOGIC PASCAL CLASS P_Base
 // Prüft, ob zwei unterschiedliche Arrays den gleichen Inhalt haben.
 // Funktioniert auch mit Arrays in Arrays
+// Result:
+// Es wird true zurückgegeben, wenn beide Arrays den gleichen Inhalt haben
 
 	LOCAL x                      AS INT
 
@@ -4625,6 +4738,11 @@ else
 	next x
 endif
 return( true )
+
+METHOD RecordCompare( oRecord1 AS AReadRecord, oRecord2 AS AReadRecord ) AS LOGIC PASCAL CLASS P_Base
+// Result:
+// Es wird true zurückgegeben, wenn beide Records den gleichen Inhalt haben
+return( SELF:ArrayCompare( SELF:ArrayFromRecord( oRecord1 ), SELF:ArrayFromRecord( oRecord2 ) ) )
 
 METHOD RecordLock( symTable AS SYMBOL, aKeyFields AS ARRAY ) AS LOGIC PASCAL CLASS P_Base
 // Einen Datensatz in Tabelle <symTable> sperren mit dem Key <aKeyFields> sperren.
