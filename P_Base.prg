@@ -139,6 +139,12 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD IsTransactionManager
 	DECLARE METHOD TransactionIsolationLevelAsString
 
+	/* VisualBasic Engine */
+	DECLARE METHOD VBEngineInitialize
+	DECLARE METHOD VBEngineRunScript
+	DECLARE ACCESS oVBEngine
+	DECLARE ASSIGN oVBEngine
+
 	/* Tabellen/Felder Methoden */
 	DECLARE METHOD CreateSQLStatement
 	DECLARE METHOD CreateCopyStatement
@@ -178,6 +184,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ProgressIncrement
 
 	/* Protokoll und Messaging */
+	DECLARE METHOD MessageImport
 	DECLARE METHOD IntegrateMessages
 	DECLARE METHOD Message
 	DECLARE METHOD MessageFormat
@@ -209,6 +216,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD MessageToProtocol
 	DECLARE METHOD MessageToPRCStatus
 	DECLARE METHOD ProtArtToSeverityStatus
+	DECLARE METHOD SeverityStatusToProtArt
 
 	/* ASCII Filehandling */
 	DECLARE METHOD WriteLineUTF8
@@ -253,6 +261,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayGroup
 	DECLARE METHOD ArrayFilter
 	DECLARE METHOD ArrayValidate
+	DECLARE METHOD ArrayStructureCheck
 	DECLARE METHOD ArrayChangeDimension
 	DECLARE METHOD ArrayCombine
 	DECLARE METHOD ArrayCompare
@@ -395,6 +404,8 @@ CLASS P_Base INHERIT AObject
 	PROTECT __aCache                          AS ARRAY
 	PROTECT __aAddMessageText                 AS ARRAY
 	PROTECT __lIsTransactionLockError         AS LOGIC
+	PROTECT __oVBEngine                       AS BaseSimpleScriptAgent
+	PROTECT __lReleaseVBEngine                AS LOGIC
 
 METHOD Init() CLASS P_Base
 
@@ -447,6 +458,12 @@ METHOD Init() CLASS P_Base
 	// Über diesen Access kann abgefragt werden, ob ein Lock-Fehler stattgefunden hat
 	SELF:__lIsTransactionLockError     := FALSE
 
+	// VisualBasic Engine - Darf erst bei Benutzung initialisiert werden und der VBEngineInitialize()
+	// sollte an einer zentralen Stelle passieren, da Kostenintensiv
+	SELF:__oVBEngine := NULL_OBJECT
+	SELF:__lReleaseVBEngine := FALSE
+
+
 METHOD Destroy() AS VOID PASCAL CLASS P_Base
 
 	SELF:CleanUp()
@@ -466,6 +483,12 @@ METHOD Integrate( oBase AS P_BASE ) AS VOID PASCAL CLASS P_Base
 METHOD CleanUp() AS VOID PASCAL CLASS P_Base
 // Aufräumen und ggf. laufende Objecte beenden
 //
+
+	/* VBEngine */
+	if( __lReleaseVBEngine .and. __oVBEngine != NULL_OBJECT )
+		__oVBEngine:Release()
+		__lReleaseVBEngine := FALSE
+	endif
 
 
 	/* LockedRecord */
@@ -2097,6 +2120,28 @@ case( cProtArt == PROT_ART_WARNING )
 endcase
 return( SEVERITY_ERROR )
 
+METHOD SeverityStatusToProtArt( dwSeverityStatus AS DWord ) AS STRING PASCAL CLASS P_Base
+/*
+DEFINE SEVERITY_NEUTRAL     := 0U
+DEFINE SEVERITY_INFORMATION := 1U
+DEFINE SEVERITY_WARNING     := 2U
+DEFINE SEVERITY_ERROR       := 3U
+DEFINE SEVERITY_FATALERROR  := 4U
+*/
+
+do case
+case( dwSeverityStatus == SEVERITY_NEUTRAL .or. dwSeverityStatus == SEVERITY_INFORMATION )
+	return( PROT_ART_INFORMATION )
+case( dwSeverityStatus == SEVERITY_WARNING )
+	return( PROT_ART_WARNING )
+endcase
+
+// ERROR und FATALERROR werden PROT_ART_ERROR
+return( PROT_ART_ERROR )
+
+
+
+
 METHOD KeyToString( aKey AS ARRAY, cbCodeBlock := nil AS USUAL ) AS STRING PASCAL CLASS P_Base
 // Gibt die Key/Value-Kombinationen als String zurück
 // Default: Key=Value, Key=Value
@@ -2820,6 +2865,35 @@ SELF:oProgress:Increment()
 // Protocol und Message
 //
 // ----------------------------------------------------------------------------------
+
+METHOD MessageImport( oObject AS USUAL ) AS VOID PASCAL CLASS P_Base
+
+	LOCAL oMsgStack                  AS AStatusStack
+	LOCAL oMsgRecord                 AS AStatusRecord
+	LOCAl oProt                      AS AMSProtocol
+	LOCAl x                          AS INT
+
+do case
+case CheckInstanceOf( oObject, #AStatusStack )
+	/*
+	  	AStatusStack - oMsgStack
+	*/
+	oMsgStack := oObject
+	for x:=1 upto oMsgStack:RecCount
+		oMsgRecord := oMsgStack:RecordRetrieve(x)
+		SELF:Message( oMsgRecord:cMessage, SELF:SeverityStatusToProtArt( oMsgRecord:dwSeverity ) )
+	next x
+
+case CheckInstanceOf( oObject, #AMSProtocol )
+	/*
+		Protokoll Importieren
+	*/
+	oProt := oObject
+
+
+endcase
+
+
 
 METHOD Message( cMeldung AS STRING, cArt := "" AS STRING, cHeader := "" AS STRING, lAppendHistory := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
 //
@@ -4857,3 +4931,128 @@ if( !oStatement:GetRowsProcessed( @dwRowsProcessed ) )
 	SELF:Message( "Fehler beim ermitteln der verarbeiteten Zeilen (GetRowsProcessed) : "+ oStatement:Status:GetMessage(), PROT_ART_ERROR )
 endif
 return( int(dwRowsProcessed) )
+
+ASSIGN oVBEngine ( oLocalVBEngine AS BaseSimpleScriptAgent) AS BaseSimpleScriptAgent PASCAL CLASS P_Base
+
+	IF __oVBEngine != NULL_OBJECT
+		SELF:Message( PROT_ART_ERROR,"VBEngine (BaseSimpleScriptAgent) wurde mehrfach zugewiesen. Das kann zu Performanceprobemen führen.", "VBEngine", true)
+		IF __lReleaseVBEngine
+			__oVBEngine:Release()
+		ENDIF
+		__lReleaseVBEngine := FALSE
+	ENDIF
+
+	__oVBEngine := oLocalVBEngine
+
+RETURN __oVBEngine
+
+
+ACCESS oVBEngine AS BaseSimpleScriptAgent PASCAL CLASS P_Base
+
+	LOCAL oParameterList         AS AClipboard
+
+	IF __oVBEngine == NULL_OBJECT
+		__oVBEngine := BaseSimpleScriptAgent{}
+		__oVBEngine:ScriptContext := #ASimpleContext
+		__oVBEngine:ClsIdContext  := @CLSID_SimpleContext
+		__oVBEngine:InitScriptEngine(SELF:oTransactionManager)
+		__oVBEngine:ServerEnvironment := AcceleratedServerEnvironment{NULL_OBJECT}
+
+		oParameterList := AClipboard{}
+		__oVBEngine:ParameterBoard    := oParameterList
+
+		__lReleaseVBEngine := TRUE
+	ENDIF
+
+RETURN __oVBEngine
+
+
+METHOD VBEngineInitialize() AS VOID PASCAL CLASS P_Base
+
+
+METHOD VBEngineRunScript( cScript AS STRING, aInputValues := nil AS ARRAY, aParameter := nil AS ARRAY ) AS USUAL PASCAL CLASS P_Base
+/*
+ 	aInputValues := { {"Feldname", uValue}, {"FeldName", uValue },...
+
+	aParameter   := { {#Structure, oObject}, {#Structure, oObject},...
+
+*/
+	LOCAL uValue          AS USUAL
+	LOCAL lScriptSuccess  AS LOGIC
+	LOCAL oVB             AS BaseSimpleScriptAgent
+
+uValue := nil
+oVB := __oVBEngine
+
+aParameter   := IfNil( aParameter, {} )
+aInputValues := IfNil( aInputValues, {} )
+
+if( SELF:ArrayStructureCheck( aInputValues , { "STRING","ALL" }, TRUE ) ) .and. ;
+	SELF:ArrayStructureCheck( aParameter,    { "SYMBOL", "ALL" }, TRUE )
+
+
+	aEVal( aParameter,  { |a| oVB:ServerEnvironment:Add(a[1], a[2], TRUE ) } )
+	aEVal( aInputValues,{ |a| oVB:ParameterBoard:@@SET( AClipboard{ a[1], a[2] } ) } )
+
+	/* -------------------------------------------------------------------------- */
+	uValue := __oVBEngine:ExecScript( cScript, FT_UNSPECIFIED, @lScriptSuccess )
+	/* -------------------------------------------------------------------------- */
+
+	if( !lScriptSuccess )
+		uValue := nil
+		SELF:Message( "Fehler beim ausführen des VB-Scriptes: " + __oVBEngine:Status:GetMessage(), PROT_ART_ERROR,"",TRUE )
+	endif
+
+	aEVal( aParameter,  { |a| oVB:ServerEnvironment:Remove(a[1]) } )
+endif
+
+return( uValue )
+
+METHOD ArrayStructureCheck( aArray AS ARRAY, aDefinition AS ARRAY, lEmptyAllowed := TRUE AS LOGIC ) AS LOGIC PASCAL CLASS P_Base
+/*
+	Prüft den Aufbau eines mehrdimensionalen Arrays:
+	Beispiel:
+		Array = { {"Fin", #BAS, 1, 1}, { "Mey", #SYM, 2,3 }, ... }
+		aDefinition := { "STRING", "SYMBOL", "INTEGER", "INTEGER" }
+
+	Ist "ALL" eingetragen, so ist dort Alles erlaubt
+
+*/
+
+	LOCAL lReturn := FALSE         AS LOGIC
+ 	LOCAL x,y                      AS INT
+ 	LOCAL cDefinition              AS STRING
+
+cDefinition := "{{" + SELF:ComplexStringBuilder( aArray,;
+					{ |paramAsString, paramTypeAsString, lLastElement| iif( paramTypeAsString=="STRING", '"'+paramAsString+'"', iif( paramTypeAsString=="SYMBOL", "#"+paramAsString, paramAsString) )+iif(lLastElement, "", ",") },;
+					{ |subAsString| "{" + subAsString + "}" }  ) + "},...}"
+
+if( aLen(aArray) > 0 )
+	for x:= 1 upto aLen(aArray)
+		if( UsualType( aArray[x] ) == ARRAY )
+			if( aLen(aArray[x]) == aLen(aDefinition) )
+				for y:=1 to aLen(aArray[x])
+					if( aDefinition[y] != "ALL" )
+						if( SELF:UsualTypeAsString( aArray[x][y] ) != aDefinition[y] )
+							SELF:Message( "Das Array hat in Zeile "+Ntrim(x)+ " nicht die geforderten " + NTrim(aLen(aDefinition))+" Elemente. Folgender Aufbau ist gefordert: " + cDefinition, PROT_ART_ERROR, "", TRUE )
+						endif
+					endif
+				next y
+			else
+				SELF:Message( "Das Array hat in Zeile "+Ntrim(x)+ " nicht die geforderten " + NTrim(aLen(aDefinition))+" Elemente. Folgender Aufbau ist gefordert: " + cDefinition, PROT_ART_ERROR, "", TRUE )
+			endif
+		else
+			SELF:Message( "Das Array hat eine falsche Dimension. Folgender Aufbau ist gefordert: " + cDefinition, PROT_ART_ERROR, "", TRUE )
+		endif
+	next x
+else
+	/* Array ist leer */
+	lReturn := lEmptyAllowed
+	if( !lReturn )
+		SELF:Message( "Das Array ist leer und leer wurde bei der Definition nicht erlaubt", PROT_ART_ERROR, "", TRUE )
+	endif
+endif
+
+return( lReturn )
+
+
