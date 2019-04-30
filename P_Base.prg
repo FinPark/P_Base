@@ -132,6 +132,8 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD Integrate
 
 	/* Datenbank */
+	DECLARE ACCESS oCommTranslation
+	DECLARE ACCESS oTypeTranslation
 	DECLARE ACCESS oTransactionManager
 	DECLARE ASSIGN oTransactionManager
 	DECLARE METHOD BeginTransaction
@@ -184,10 +186,10 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ProgressIncrement
 
 	/* Protokoll und Messaging */
-	DECLARE METHOD MessageImport
 	DECLARE METHOD IntegrateMessages
 	DECLARE METHOD Message
 	DECLARE METHOD MessageFormat
+	DECLARE METHOD MessageImport
 	DECLARE METHOD AddMessageText
 	DECLARE METHOD ResetLocalError
 	DECLARE METHOD IsLocalError
@@ -255,16 +257,39 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD IsCargoType
 	DECLARE ACCESS Cargo
 
+	/* Cache */
+	DECLARE METHOD CacheAdd
+	DECLARE METHOD CacheDel
+	DECLARE METHOD CacheGet
+	DECLARE METHOD CachePos
+	DECLARE METHOD CacheExists
+	DECLARE METHOD CacheImportArray
+	DECLARE METHOD CacheImportRecord
+
+	/* Timer */
+	DECLARE METHOD TimerStart
+	DECLARE METHOD TimerEnd
+	DECLARE METHOD SecondsToStringTime
+
 	/* Array Methoden */
 	DECLARE METHOD MemoToArray
 	DECLARE METHOD ArrayFind
 	DECLARE METHOD ArrayGroup
 	DECLARE METHOD ArrayFilter
 	DECLARE METHOD ArrayValidate
+	DECLARE METHOD ArrayValidateStructure
 	DECLARE METHOD ArrayStructureCheck
+	DECLARE METHOD ArrayMaxColumnWith
 	DECLARE METHOD ArrayChangeDimension
 	DECLARE METHOD ArrayCombine
 	DECLARE METHOD ArrayCompare
+	DECLARE METHOD ArrayCompareComplex
+	DECLARE METHOD ArrayDocumentation
+	DECLARE METHOD __ArrayDocumentation
+	DECLARE METHOD ArrayKeyValueDocumentation
+	DECLARE METHOD RecordCompare
+	DECLARE METHOD RecordCompareComplex
+	DECLARE METHOD RecordDocumentation
 	DECLARE METHOD ArrayModify
 	DECLARE METHOD ArrayKeyToString
 	DECLARE METHOD ArrayKeyToSymbol
@@ -299,12 +324,13 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD IsInConfigList
 
    /* String-Konvertierungen und Methoden */
-	DECLARE METHOD StringToUsual
 	DECLARE METHOD UsualTypeAsString
+	DECLARE METHOD UsualTypeAsSymbol
 	DECLARE METHOD UsualToString
 	DECLARE METHOD UsualToSymbol
 	DECLARE METHOD UsualToNumeric
 	DECLARE METHOD UsualInitialValue
+	DECLARE METHOD StringToUsual
 	DECLARE METHOD StringToArray
 	DECLARE METHOD StringToDisk
 	DECLARE METHOD StringToUnicode
@@ -346,18 +372,10 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD VOTypeToSqlType
 	DECLARE METHOD CleanUp
 	DECLARE METHOD GetConfigParam
+	DECLARE METHOD GetConfigParamAndValidate
 	DECLARE METHOD GetKomplexConfigParameter
 	DECLARE METHOD RenameKeyField
 	DECLARE METHOD ReleaseIfNotNullObject
-
-	/* Cache */
-	DECLARE METHOD CacheAdd
-	DECLARE METHOD CacheDel
-	DECLARE METHOD CacheGet
-	DECLARE METHOD CachePos
-	DECLARE METHOD CacheExists
-	DECLARE METHOD CacheImportArray
-	DECLARE METHOD CacheImportRecord
 
 	/* Debug und Performance */
 	DECLARE METHOD DbgMessage
@@ -406,6 +424,11 @@ CLASS P_Base INHERIT AObject
 	PROTECT __lIsTransactionLockError         AS LOGIC
 	PROTECT __oVBEngine                       AS BaseSimpleScriptAgent
 	PROTECT __lReleaseVBEngine                AS LOGIC
+	PROTECT __oCommTranslationMatrix          AS P_BaseMatrix
+	PROTECT __oTypeTranslationMatrix          AS P_BaseMatrix
+
+	/* wird für VBEngine benötigt */
+	PROTECT _oMsgStack                        AS AStatusStack
 
 METHOD Init() CLASS P_Base
 
@@ -413,6 +436,8 @@ METHOD Init() CLASS P_Base
 
 
 	/* Interne Variablen */
+	SELF:__oCommTranslationMatrix      := NULL_OBJECT
+	SELF:__oTypeTranslationMatrix      := NULL_OBJECT
 	SELF:__oTransactionManager         := NULL_OBJECT
 	SELF:__lDestroyTransactionManager  := FALSE
 
@@ -484,6 +509,16 @@ METHOD CleanUp() AS VOID PASCAL CLASS P_Base
 // Aufräumen und ggf. laufende Objecte beenden
 //
 
+	/* CommTranslationMatrix */
+	if( SELF:__oCommTranslationMatrix != NULL_OBJECT )
+		SELF:__oCommTranslationMatrix:Release()
+	endif
+
+	/*TypeTranslationMatrix */
+	if( SELF:__oTypeTranslationMatrix != NULL_OBJECT )
+		SELF:__oTypeTranslationMatrix:Release()
+	endif
+
 	/* VBEngine */
 	if( __lReleaseVBEngine .and. __oVBEngine != NULL_OBJECT )
 		__oVBEngine:Release()
@@ -537,6 +572,15 @@ METHOD CleanUp() AS VOID PASCAL CLASS P_Base
 		SELF:__oTransactionManager:Release()
 		SELF:__oTransactionManager := NULL_OBJECT
 	endif
+
+METHOD TimerStart( symMarker AS SYMBOL ) AS VOID PASCAL CLASS P_Base
+SELF:CacheAdd( #P_Base_intern_TimerCounter, symMarker, Seconds() )
+
+METHOD TimerEnd( symMarker AS SYMBOL ) AS DWORD PASCAL CLASS P_Base
+return( Seconds()-SELF:CacheGet(#P_Base_intern_TimerCounter, symMarker) )
+
+METHOD SecondsToStringTime( nSeconds AS DWord ) AS STRING PASCAL CLASS P_Base
+return( SELF:StringDuration( nSeconds * 60 ) )
 
 ACCESS dwRunTime	AS FLOAT PASCAL CLASS P_Base
 // Gibt die Laufzeit des Object, bzw. seit ResetRunTime() in Minuten zurück
@@ -636,6 +680,39 @@ METHOD MessageCount( cArt := "E" AS STRING ) AS INT PASCAL CLASS P_Base
 
 AEval( SELF:__aMessage, { |aM| nError += IIF( aM[3] $ cArt, 1, 0 ) } )
 return( nError)
+
+ACCESS oCommTranslation AS P_BaseMatrix PASCAL CLASS P_Base
+if( SELF:__oCommTranslationMatrix == NULL_OBJECT )
+    /* Übersetzungsmatrix zwischen den unteschiedlichen Objecten */
+    SELF:__oCommTranslationMatrix := P_BaseMatrix{}
+    SELF:__oCommTranslationMatrix:aHeader := { #INTERN, #PROT, #SEVERITY, #PRCStatus, #Description }
+    SELF:__oCommTranslationMatrix:Add( { "N" , PROT_ART_INFORMATION, SEVERITY_NEUTRAL,     prcStatusOK,           "Neutral" } )
+    SELF:__oCommTranslationMatrix:Add( { "I" , PROT_ART_INFORMATION, SEVERITY_INFORMATION, prcStatusInformation,  "Information" } )
+    SELF:__oCommTranslationMatrix:Add( { "W" , PROT_ART_WARNING,     SEVERITY_WARNING,     prcStatusWarning,      "Warning" } )
+    SELF:__oCommTranslationMatrix:Add( { "E" , PROT_ART_ERROR,       SEVERITY_ERROR,       prcStatusError,        "Error" } )
+    SELF:__oCommTranslationMatrix:Add( { "F" , PROT_ART_ERROR,       SEVERITY_FATALERROR,  prcStatusError,        "Fatal-Error" } )
+	SELF:__oCommTranslationMatrix:Add( { "D" , PROT_ART_INFORMATION, SEVERITY_NEUTRAL,     prcStatusOK,           "Debug" } )
+endif
+return( SELF:__oCommTranslationMatrix )
+
+ACCESS oTypeTranslation AS P_BaseMatrix PASCAL CLASS P_Base
+if( SELF:__oTypeTranslationMatrix == NULL_OBJECT )
+	*/ Typenübersetzungen */
+	SELF:__oTypeTranslationMatrix := P_BaseMatrix{}
+	SELF:__oTypeTranslationMatrix:aHeader := { #STRING, #USUALTYPE, #SYMBOL, #VALTYPE, #NUMTYPE, #VALIDATIONBLOCK, #CONVERBLOCK }
+	SELF:__oTypeTranslationMatrix:Add( { "STRING",    STRING,    #STRING,    "C", 0, { |u| IsString(u) },    { |u| AsString(u) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "CODEBLOCK", CODEBLOCK, #CODEBLOCK, "B", 0, { |u| IsCodeBlock(u) }, { |u| nil } } )
+	SELF:__oTypeTranslationMatrix:Add( { "ARRAY",     ARRAY,     #ARRAY,     "A", 0, { |u| IsArray(u) },     { |u| {} } } )
+	SELF:__oTypeTranslationMatrix:Add( { "DATE",      DATE,      #DATE,      "D", 0, { |u| IsDate(u) },      { |u| CtoD(AsString(u)) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "LOGIC",     LOGIC,     #LOGIC,     "L", 0, { |u| IsLogic(u) },     { |u| AsLogic(u) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "REAL8",     REAL8,     #REAL8,     "N", 0, { |u| IsString(u) },    { |u| AsString(u) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "OBJECT",    OBJECT,    #OBJECT,    "O", 0, { |u| IsObject(u) },    { |u| NULL_OBJECT } } )
+	SELF:__oTypeTranslationMatrix:Add( { "SYMBOL",    SYMBOL,    #SYMBOL,    "#", 0, { |u| IsSymbol(u) },    { |u| AsSymbol(u) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "INT",       INT,       #INT,       "N", 0, { |u| IsNumeric(u) },   { |u| AsString(u) } } )
+	SELF:__oTypeTranslationMatrix:Add( { "NIL",       NIL,       #NIL,       "U", 0, { |u| IsNil(u) },       { |u| nil } } )
+
+endif
+return( SELF:__oTypeTranslationMatrix )
 
 ASSIGN oTransactionManager( oT AS Servermanager ) AS ServerManager PASCAL CLASS P_Base
 // Zuweisen eines TransactionsManagers. Mit diesem wird dann gearbeitet
@@ -1331,6 +1408,9 @@ do case
 		cTyp := "UNGÜLTIGER DATENTYP="+ValType(uVar)
 endcase
 return( cTyp )
+
+METHOD UsualTypeASSymbol( uVar AS USUAL ) AS SYMBOL PASCAL CLASS P_Base
+return( String2Symbol( SELF:UsualTypeAsString( uVar ) ) )
 
 METHOD VOTypeToSqlType( cVOType AS STRING ) AS STRING PASCAL CLASS P_Base
 //
@@ -2982,8 +3062,8 @@ case( InList( #kill, #empty ) )
 endcase
 
 
-METHOD MessageFormat( cMeldung AS STRING, aItems AS ARRAY, cArt := "" AS STRING, lAppendHistory := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
-SELF:Message( SELF:StringFormat( cMeldung, aItems ), cArt, "", lAppendHistory )
+METHOD MessageFormat( cMeldung AS STRING, aItems AS ARRAY, cArt := "" AS STRING, lAppendHistory := FALSE AS LOGIC, LCFormat := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
+SELF:Message( SELF:StringFormat( cMeldung, aItems,0,lCFormat ), cArt, "", lAppendHistory )
 
 
 METHOD IntegrateMessages( oBaseObject AS P_BASE ) AS VOID PASCAL CLASS P_Base
@@ -3198,12 +3278,13 @@ if( ALen(SELF:__aMessage) != 0 )
 	next x
 endif
 
-METHOD StringFormat( cText AS STRING, aItems AS ARRAY , nLen := 0 AS INT) AS STRING PASCAL CLASS P_Base
+METHOD StringFormat( cText AS STRING, aItems AS ARRAY , nLen := 0 AS INT, lCFormat := FALSE AS LOGIC) AS STRING PASCAL CLASS P_Base
 //
 // Parameter:
 // 	cText     (STRING)    - "Hier begint nun die # Suche am # für # und weiter #"
-//		aItems    (ARRAY)     - {3, CToD("10.10.2011"), "mich und meine Freunde",3.14}
-//    nLen      (INT)       - Bringt den String danach auf die angegebene Länge.
+//	aItems    (ARRAY)     - {3, CToD("10.10.2011"), "mich und meine Freunde",3.14}
+//  nLen      (INT)       - Bringt den String danach auf die angegebene Länge.
+//  lCFormat  (LOGIC)     - Soll statt # das Format {1} benutzt werden?
 //
 // Beispiel:
 // 	StringFormat("Hier begint nun die # Suche am # für # und weiter #", {3, CToD("10.10.2011"), "mich und meine Freunde",3.14})
@@ -3213,7 +3294,11 @@ METHOD StringFormat( cText AS STRING, aItems AS ARRAY , nLen := 0 AS INT) AS STR
 
 for x:=1 upto ALen(aItems)
 	cReplace := SELF:UsualToString( aItems[x] )
-   cText := StrTran(cText,"#",cReplace, 1, 1)
+	if( lCFormat )
+		cText := StrTran( cText, "{"+NTrim(x)+"}" )
+	else
+		cText := StrTran(cText,"#",cReplace, 1, 1)
+	endif
 next x
 if( nLen != 0 )
 	cText := SELF:StringAlign( cText, nLen )
@@ -3250,6 +3335,7 @@ otherwise
 	uValue := ""
 endcase
 return( uValue )
+
 
 METHOD UsualToSymbol( uValue AS USUAL ) AS SYMBOL PASCAL CLASS P_Base
 return( IIF( IsSymbol(uValue), uValue, String2Symbol( SELF:StringTranslate( SELF:UsualToString( uValue ), {{" ",""},{"#",""}} ) ) ) )
@@ -4435,7 +4521,7 @@ else
 endif
 return( aValueList )
 
-METHOD GetConfigParam( dwParameterTyp AS DWORD, cBereich AS STRING, cParameterName AS STRING, uInitValue AS USUAL, symTable AS SYMBOL, symKeyField AS SYMBOL, cTableName := "" AS STRING ) AS USUAL PASCAL CLASS P_Base
+METHOD GetConfigParamAndValidate( dwParameterTyp AS DWORD, cBereich AS STRING, cParameterName AS STRING, uInitValue AS USUAL, symTable AS SYMBOL, symKeyField AS SYMBOL, cTableName := "" AS STRING ) AS USUAL PASCAL CLASS P_Base
 //
 //  Liest den Konfigurationsparameter aus und prüft ihn gleich auf vorhandensein in der Schlüsseltabelle
 //  Beispiel:
@@ -4446,24 +4532,38 @@ METHOD GetConfigParam( dwParameterTyp AS DWORD, cBereich AS STRING, cParameterNa
 uReturnValue := uInitValue
 
 SELF:ResetLocalError( #BaseGetConfigParam )
-do case
-case( dwParameterTyp == STRING )
-	uReturnValue := oConfigManager:GetStringParam(cBereich, cParameterName, uInitValue	)
-case( dwParameterTyp == LOGIC )
-	uReturnValue := oConfigManager:GetLogicParam(cBereich, cParameterName, uInitValue	)
-case( dwParameterTyp == INT )
-	uReturnValue := oConfigManager:GetINTParam(cBereich, cParameterName, uInitValue	)
-case( dwParameterTyp == FLOAT )
-	uReturnValue := oConfigManager:GetFloatParam(cBereich, cParameterName, uInitValue	)
-otherwise
-	SELF:MessageFormat( "Fehler beim auslesen von Konfigurationsparameter #, # vom Typ #. Der Typ ist nicth bekannt. ", { cBereich, cParameterName, dwParameterTyp }, PROT_ART_ERROR )
-endcase
+uReturnValue := SELF:GetConfigParam( dwParameterTyp, cBereich, cParameterName, uInitValue )
 if( !SELF:IsLocalError( #BaseGetConfigParam ) )
 	SELF:AddMessageText( #add, "Konfigurationsarameter "+cBereich+", "+cParameterName )
 	SELF:CheckFieldsFound( symTable, iif( Empty(cTableName), Symbol2String(symTable), cTableName ), {{ symKeyField, uReturnValue }} )
 	SELF:AddMessageText( #del )
 endif
 return( uReturnValue )
+
+METHOD GetConfigParam( dwParameterTyp AS DWORD, cBereich AS STRING, cParameterName AS STRING, uInitValue AS USUAL ) AS USUAL PASCAL CLASS P_Base
+
+	LOCAL uValue                       AS USUAL
+
+uValue := uInitValue
+SELF:ResetLocalError( #BaseGetConfigParam )
+do case
+case( dwParameterTyp == STRING )
+	uValue := oConfigManager:GetStringParam(cBereich, cParameterName, uInitValue	)
+case( dwParameterTyp == LOGIC )
+	uValue := oConfigManager:GetLogicParam(cBereich, cParameterName, uInitValue	)
+case( dwParameterTyp == INT )
+	uValue := oConfigManager:GetINTParam(cBereich, cParameterName, uInitValue	)
+case( dwParameterTyp == FLOAT )
+	uValue := oConfigManager:GetFloatParam(cBereich, cParameterName, uInitValue	)
+otherwise
+	SELF:MessageFormat( "Fehler beim auslesen von Konfigurationsparameter #, # vom Typ #. Der Typ ist nicht bekannt. ", { cBereich, cParameterName, dwParameterTyp }, PROT_ART_ERROR )
+endcase
+
+if( SELF:IsLocalError( #BaseGetConfigParam ) )
+	uValue := uInitValue
+endif
+
+return( uValue )
 
 
 METHOD StringDate( dDate AS DATE, cbCodeBlock := nil AS USUAL ) AS STRING PASCAL CLASS P_Base
@@ -4790,7 +4890,8 @@ return( nValue )
 
 METHOD ArrayCompare( aArray1 AS ARRAY, aArray2 AS ARRAY ) AS LOGIC PASCAL CLASS P_Base
 // Prüft, ob zwei unterschiedliche Arrays den gleichen Inhalt haben.
-// Funktioniert auch mit Arrays in Arrays
+// Funktioniert auch mit Arrays in Arrays. Es wird in beiden Arrays aber auch der selbe Inhalt
+// an der selben Position gesucht. Für einen loseren Vergleich (Nur Inhalt, nicht Posiion) gibt es ArrayCompareComplex.
 // Result:
 // Es wird true zurückgegeben, wenn beide Arrays den gleichen Inhalt haben
 
@@ -4813,10 +4914,105 @@ else
 endif
 return( true )
 
+METHOD ArrayCompareComplex( aArray1 AS ARRAY, aArray2 AS ARRAY) AS LOGIC PASCAL CLASS P_Base
+/*
+  	Es wird verglichen, ob beide Arrays die "gleichen" Inhalte haben. Dabei müssen die Inhalte nicht an den gleichen Positionen im Array
+  	stehen. Wenn beide Arrays gleich sind, TRUE zurück gegeben.
+*/
+return( Empty( SELF:ArrayDocumentation( aArray1, aArray2 ) ) )
+
+METHOD ArrayDocumentation( aArray1 AS ARRAY, aArray2 AS ARRAY ) AS STRING PASCAL CLASS P_Base
+/*
+  	Es wird verglichen, ob beide Arrays die "gleichen" Inhalte haben. Dabei müssen die Inhalte nicht an den gleichen Positionen im Array
+  	stehen. Wenn beide Arrays gleich sind, wird ein leerer String zurück gegeben. Anderfalls wird eine Änderungsdokumentation zurück gegeben,
+  	wobei aArray1 die Basis ist und aArray2 die Veränderung zu aArray1
+*/
+return( SELF:__ArrayDocumentation( aArray1, aArray2, 1 ) )
+
+PROTECT METHOD __ArrayDocumentation( aArray1  AS ARRAY, aArray2 AS ARRAY, nLevel AS INT ) AS STRING PASCAL CLASS P_Base
+/*
+	Es wird davon ausgegangen, dass aArray1 die Basis (Alt) ist und aArray2 die Veränderung (Neu)
+	So wird auch dokumentiert.
+*/
+
+	LOCAL cString := ""             AS STRING
+	LOCAL x                         AS INT
+	LOCAL oBase                     AS P_Base
+	LOCAL cbFormat                  AS CODEBLOCK
+
+oBase := SELF
+cbFormat := { |nColumn,c,aItems| cString += iif( nLevel > 0, "Ebene "+Ntrim(nLevel)+", ", "") + "Spalte "+Ntrim(nColumn) +" : " +  oBase:StringFormat(c, aItems, 9, TRUE ) + CRLF }
+if( aLen( aArray1 ) <> aLen( aArray2 ) )
+	cString += eVal( cbFormat, 1 , "Unterschiedliche Größen: Alt = {1}, Neu = {2}", { aLen(aArray1), aLen(aArray2) } )
+endif
+
+for x:=1 upto aLen( aArray1 )
+	if( aLen(aArray2) >= x )
+		if( UsualType( aArray1[x] ) == UsualType( aArray2[x] ) )
+			if( UsualType( aArray1[x] ) == ARRAY )
+				cString += SELF:__ArrayDocumentation( aArray1[x], aArray2[x], nLevel+1 )
+			else
+				cString += eVal( cbFormat, x, "Unterschiedliche Inhalte. Alter Inhalt {1}, neuer Inhalt {2} ", { aArray1[x], aArray2[x] } )
+			endif
+		else
+			cString += eVal( cbFormat, x, "Unterschiedliche Inhalte. Alter Inhalt {1} vom Typ {3}, neuer Inhalt {3} vom Typ {4}", { aArray1[x], UsualType(aArray1[x]), aArray2[x], UsualType(aArray2[x]) } )
+		endif
+	endif
+next x
+
+return( cString )
+
+METHOD ArrayKeyValueDocumentation( aArray1 AS ARRAY, aArray2 AS ARRAY ) AS STRING PASCAL CLASS P_Base
+/*
+	Die Arrays müssen den Aufbau {{symbolKEY, usialValue},...} haben.
+*/
+
+	LOCAL cString := ""             AS STRING
+	LOCAL x, nPos                   AS INT
+	LOCAL oBase                     AS P_Base
+	LOCAL cbFormat                  AS CODEBLOCK
+
+if( SELF:ArrayValidateStructure( aArray1, {{"SYMBOL", "USUAL"}} )  .and.;
+	SELF:ArrayValidateStructure( aArray2, {{"SYMBOL", "USUAL"}} ) )
+
+	oBase := SELF
+	cbFormat := { |c,aItems| cString += oBase:StringFormat(c, aItems, 9, TRUE ) + CRLF }
+
+	/* Neu oder geändert */
+    For x:=1 upto aLen( aArray2 )
+		nPos := aScan( aArray1, { |a| a[1] == aArray2[x][1] } )
+		If( nPos == 0 )
+			eVal( cbFormat, "Feld {1} mit Inhalt {2} ist neu hinzugekommen", { aArray2[x][1], aArray2[x][2] } )
+		else
+			if( aArray1[nPos][2] != aArray2[x][2] )
+				eVal( cbFormat, "Bei Feld {1} wurde den Inhalt von {2} auf {3} geändert", { aArray2[x][1], aArray1[nPos][2], aArray2[x][2] } )
+			endif
+		endif
+    next x
+
+	/* Gelöscht */
+	for x:=1 upto aLen( aArray1 )
+		nPos := aScan( aArray2, { |a| a[1] == aArray1[x][1] } )
+		if( nPos == 0 )
+			eVal( cbFormat, "Das Feld {1} mit Inhalt {2} wurde gelöscht", { aArray1[x][1], aArray1[x][2] } )
+		endif
+	next x
+endif
+return( cString )
+
 METHOD RecordCompare( oRecord1 AS AReadRecord, oRecord2 AS AReadRecord ) AS LOGIC PASCAL CLASS P_Base
 // Result:
-// Es wird true zurückgegeben, wenn beide Records den gleichen Inhalt haben
+// Es wird true zurückgegeben, wenn beide Records den gleichen Inhalt haben - auch an der gleichen Stelle
 return( SELF:ArrayCompare( SELF:ArrayFromRecord( oRecord1 ), SELF:ArrayFromRecord( oRecord2 ) ) )
+
+METHOD RecordCompareComplex(oRecord1 AS AReadRecord, oRecord2 AS AReadRecord ) AS LOGIC PASCAL CLASS P_Base
+// Es werden die beiden Records verglichen und es wird true zurück gegeben, wenn beide den gleichen Inhalt haben.
+// Dabei müssen die Inhalte nicht an der gleichen Stelle stehen.
+return( SELF:ArrayCompareComplex(SELF:ArrayFromRecord( oRecord1 ), SELF:ArrayFromRecord( oRecord2 ) ) )
+
+METHOD RecordDocumentation( oRecord1 AS AReadRecord, oRecord2 AS AReadRecord ) AS STRING PASCAL CLASS P_Base
+// Siehe ArrayDocumentation
+return( SELF:ArrayKeyValueDocumentation( SELF:ArrayFromRecord( oRecord1 ), SELF:ArrayFromRecord( oRecord2 ) ) )
 
 METHOD RecordLock( symTable AS SYMBOL, aKeyFields AS ARRAY ) AS LOGIC PASCAL CLASS P_Base
 // Einen Datensatz in Tabelle <symTable> sperren mit dem Key <aKeyFields> sperren.
@@ -4960,7 +5156,7 @@ ACCESS oVBEngine AS BaseSimpleScriptAgent PASCAL CLASS P_Base
 
 		oParameterList := AClipboard{}
 		__oVBEngine:ParameterBoard    := oParameterList
-
+        __oVBEngine:InitScriptEngine( SELF:oTransactionManager )
 		__lReleaseVBEngine := TRUE
 	ENDIF
 
@@ -4968,7 +5164,27 @@ RETURN __oVBEngine
 
 
 METHOD VBEngineInitialize() AS VOID PASCAL CLASS P_Base
+/*
+	Hier wird einmal ein VBEngine-Object abgerufen. Damit wird die VB-Script-Engine
+	Initialisiert. Danach kann das Object sofort wieder weggeworfen werden.
 
+	Beispiel:
+	--------------------------------------------------------
+    oBase := P_Base{}
+	oBase:TimerStart(#VBEngineRuntime)
+    oBase:VBEngineInitialize()
+	nSeconds := oBase:TimerEnd(#VBEngineRuntime)
+	debugPrint( "FIN: ", __ENT, __LINE__, "Runtime VB-Init: ", oBase:SecondsToStringTime(nSeconds), nSeconds)
+	for x:= 1 to 1000
+		oBase:VBEngineRunScript("ReturnValue = 123/2 *2")
+	next x
+	nSeconds := oBase:TimerEnd(#VBEngineRuntime)
+	debugPrint( "FIN: ", __ENT, __LINE__, "Runtime VB-Script Execution * 1000: ", oBase:SecondsToStringTime(nSeconds), nSeconds, oBase:VBEngineRunScript("ReturnValue = 123/2 *2") )
+    oBase:Release()
+
+*/
+
+SELF:oVBEngine:InitScriptEngine( SELF:oTransactionManager )
 
 METHOD VBEngineRunScript( cScript AS STRING, aInputValues := nil AS ARRAY, aParameter := nil AS ARRAY ) AS USUAL PASCAL CLASS P_Base
 /*
@@ -4983,6 +5199,7 @@ METHOD VBEngineRunScript( cScript AS STRING, aInputValues := nil AS ARRAY, aPara
 
 uValue := nil
 oVB := __oVBEngine
+lScriptSuccess := TRUE
 
 aParameter   := IfNil( aParameter, {} )
 aInputValues := IfNil( aInputValues, {} )
@@ -4995,7 +5212,9 @@ if( SELF:ArrayStructureCheck( aInputValues , { "STRING","ALL" }, TRUE ) ) .and. 
 	aEVal( aInputValues,{ |a| oVB:ParameterBoard:@@SET( AClipboard{ a[1], a[2] } ) } )
 
 	/* -------------------------------------------------------------------------- */
+	_oMsgStack := AStatusStack{}
 	uValue := __oVBEngine:ExecScript( cScript, FT_UNSPECIFIED, @lScriptSuccess )
+	_oMsgStack:Release()
 	/* -------------------------------------------------------------------------- */
 
 	if( !lScriptSuccess )
@@ -5007,6 +5226,61 @@ if( SELF:ArrayStructureCheck( aInputValues , { "STRING","ALL" }, TRUE ) ) .and. 
 endif
 
 return( uValue )
+
+METHOD ArrayValidateStructure( aArray AS ARRAY, aDefinition AS ARRAY ) AS LOGIC PASCAL CLASS P_Base
+/*
+	Definition                                      Array
+	------------------------------------------------------------------------------------------------------
+	{ "SYMBOL", "SYMBOL", "SYMBOL" }	 			{ #1,#2,#3,... }
+	{{ "SYMBOL", "USUAL" }}                         { { #KEY1, nil }, { #KEY2, "Hallo" }, ...
+	{{ "SYMBOL", { "SYMBOL", "USUAL" }              { {#KAT1, {#KEY1, 123.33}}, {#Kat2, {#KEY2, "Finken"}} }
+
+
+*/
+
+ 	LOCAL cDefinition              AS STRING
+ 	LOCAL x                        AS INT
+	LOCAL oError                   AS USUAL
+ 	LOCAl lOK := TRUE              AS LOGIC
+
+cDefinition := "{" + SELF:ComplexStringBuilder( aDefinition,;
+					{ |paramAsString, paramTypeAsString, lLastElement| iif( paramTypeAsString=="STRING", '"'+paramAsString+'"', iif( paramTypeAsString=="SYMBOL", "#"+paramAsString, paramAsString) )+iif(lLastElement, "", ",") },;
+					{ |subAsString| "{" + subAsString + "}" }  ) + "},...}"
+
+BEGIN SEQUENCE
+	for x:=1 upto aLen( aArray )
+
+		do case
+		case( UsualType(aArray[x]) == ARRAY .and. UsualType(aDefinition[1]) == ARRAY )
+			/* Hier geht die Definition mit einer weiteren Dimension weiter */
+	     	if( !SELF:ArrayValidateStructure( aArray[x], aDefinition[1] ) )
+				lOK := FALSE
+	     	endif
+
+		case( aLen( aDefinition ) == 1 )
+			/* Hier gilt, dass alle kommenden Elemente == aDefintiion[1] sein müssen */
+			if .not. ( aDefinition[1] == "USUAL" .or. SELF:UsualTypeAsString(aArray[x]) == aDefinition[x] )
+				SELF:MessageFormat("An der Position {1} wird ein Typ {2} erwartet. Gefunden wurde jedoch in Typ {3}. Generelle Struktur: {4}", { x, aDefinition[1], SELF:UsualTypeAsString(aArray[x]), cDefinition}, "E", TRUE, TRUE )
+				lOK := FALSE
+			endif
+
+		case( aDefinition[x] == "USUAL" )
+			/* Der Eintrag darf alles sein. Hier kann sich auch keine weitere Ebene verbergen */
+
+		case( UsualType(aDefinition[x]) == STRING )
+			/* Hier muss der Inhalt gegen die Definition geprüft werden */
+			if( !SELF:UsualTypeAsString(aArray[x]) == aDefinition[x] )
+				SELF:MessageFormat("An der Position {1} wird ein Typ {2} erwartet. Gefunden wurde jedoch ein Typ {3}. Generelle Struktur: {4}", { x, aDefinition[x], SELF:UsualTypeAsString(aArray[x]), cDefinition}, "E", TRUE, TRUE )
+				lOK := FALSE
+			endif
+
+		endcase
+	next x
+
+RECOVER USING oError
+	SELF:MessageFormat("Fataler Fehler beim validieren der Array Sruktur: #", { oError:Description }, PROT_ART_ERROR, TRUE )
+
+END SEQUENCE
 
 METHOD ArrayStructureCheck( aArray AS ARRAY, aDefinition AS ARRAY, lEmptyAllowed := TRUE AS LOGIC ) AS LOGIC PASCAL CLASS P_Base
 /*
@@ -5023,7 +5297,7 @@ METHOD ArrayStructureCheck( aArray AS ARRAY, aDefinition AS ARRAY, lEmptyAllowed
  	LOCAL x,y                      AS INT
  	LOCAL cDefinition              AS STRING
 
-cDefinition := "{{" + SELF:ComplexStringBuilder( aArray,;
+cDefinition := "{{" + SELF:ComplexStringBuilder( aDefinition,;
 					{ |paramAsString, paramTypeAsString, lLastElement| iif( paramTypeAsString=="STRING", '"'+paramAsString+'"', iif( paramTypeAsString=="SYMBOL", "#"+paramAsString, paramAsString) )+iif(lLastElement, "", ",") },;
 					{ |subAsString| "{" + subAsString + "}" }  ) + "},...}"
 
@@ -5055,4 +5329,37 @@ endif
 
 return( lReturn )
 
+METHOD ArrayMaxColumnWith( aArray AS ARRAY ) AS ARRAY PASCAL CLASS P_Base
+/*
+	Array    = { "12", 12, "abcd", TRUE }
+	liefert:   { 2,2,4,4 }
 
+	Array    = { {105,  "a",   "abcde"},;
+	             {9999, "abc", "1" } }
+	Liefert:   { 4, 3, 5 }
+
+
+*/
+
+	LOCAl x,y               AS INT
+    LOCAL aColumnWith       AS ARRAY
+    LOCAL aTmp              AS ARRAY
+
+aColumnWith := {}
+for x:=1 upto aLen( aArray )
+	if( UsualType(aArray[x]) == ARRAY )
+		aTmp := SELF:ArrayMaxColumnWith( aArray[x] )
+		if( aLen( aColumnWith ) == 0 )
+			aColumnWith := aTmp
+		else
+			for y:=1 upto aLen( aTmp )
+				if( aTmp[y] > aColumnWith[y] )
+					aColumnWith[y] := aTmp[y]
+				endif
+			next y
+		endif
+	else
+    	aadd( aColumnWith, Len( AsString(aArray[x])) )
+	endif
+next x
+return( aColumnWith )
