@@ -140,6 +140,8 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD EndTransaction
 	DECLARE METHOD IsTransactionManager
 	DECLARE METHOD TransactionIsolationLevelAsString
+	DECLARE ACCESS lIsDeveloperSystem
+
 
 	/* VisualBasic Engine */
 	DECLARE METHOD VBEngineInitialize
@@ -273,6 +275,7 @@ CLASS P_Base INHERIT AObject
 
 	/* Array Methoden */
 	DECLARE METHOD MemoToArray
+	DECLARE METHOD ArrayAdd
 	DECLARE METHOD ArrayFind
 	DECLARE METHOD ArrayGroup
 	DECLARE METHOD ArrayFilter
@@ -454,7 +457,7 @@ METHOD Init() CLASS P_Base
 	SELF:__cBereich                    := ""
 	SELF:__cTitle                      := ""
 
-	SELF:__lDebugMode                  := FALSE
+	SELF:__lDebugMode                  := SELF:lIsDeveloperSystem
 	SELF:__aTrace                      := {}
 	SELF:ResetRunTime()
 
@@ -713,6 +716,9 @@ if( SELF:__oTypeTranslationMatrix == NULL_OBJECT )
 
 endif
 return( SELF:__oTypeTranslationMatrix )
+
+ACCESS lIsDeveloperSystem AS LOGIC PASCAL CLASS P_Base
+return( _GetDebug() .OR. _GetSvcInfo() )
 
 ASSIGN oTransactionManager( oT AS Servermanager ) AS ServerManager PASCAL CLASS P_Base
 // Zuweisen eines TransactionsManagers. Mit diesem wird dann gearbeitet
@@ -1922,6 +1928,19 @@ if( ALen( aFileRows ) != 0 )
 endif
 return( aRows )
 
+METHOD ArrayAdd( aArray AS ARRAY, aAddArray AS ARRAY, nPosition := -1 AS INT ) AS ARRAY PASCAL CLASS P_Base
+// Fügt ein Array (aAddArray) in ein Array (aArray) an einer bestimmten Position ein
+// {aArray}           = { "a","b","c")
+// {aAddArray}        = { 1,2,3 }
+// Result             = { "a","b","c",1,2,3 }
+
+	LOCAL x           AS INT
+
+for x:=1 upto aLen( aAddArray )
+	aAdd( aArray, aAddArray[x] )
+next x
+return( aArray )
+
 METHOD ArrayFind( aArray AS ARRAY, uSearchValue AS USUAL, cbCodeBlockConvert := nil AS USUAL ) AS LOGIC PASCAL CLASS P_Base
 // Durchsucht das Array <aArray> nach dem Inhalt <uSearchValue>.
 // Es werden nur Elemente geprüft, die vom selben UsualType sind wie <uSearchValue>
@@ -2046,13 +2065,16 @@ do while(nFound != 0)
 		AAdd( aArray, Eval( cbCodeBlock, Left(cString, nFound-1)) )
 		if( nFound==Len(cString) )
 			// Ausnahmesituation: Delimiter letztes Zeichen in der Zeile
-			cString := Right( cString, Len(cString) - (nFound-2) - Len(cNextToken))
+
+			if( x>0 )
+				cString := Right( cString, int(Len(cString)) - (nFound-2) - int(Len(cNextToken)))
+			endif
 			if( cString == cNextToken )
 				cString := ""
 				AAdd( aArray, "" )
 			endif
 		else
-			cString := Right( cString, Len(cString) - (nFound-1) - Len(cNextToken))
+			cString := Right( cString, int(Len(cString)) - (nFound-1) - int(Len(cNextToken)))
 		endif
 	endif
 
@@ -4019,7 +4041,7 @@ if( SELF:lDebugMode .or. lDisplayAnyway )
 	if( UsualType(uMessage) == ARRAY )
 		debugPrintArray(uMessage)
 	else
-		debugPrint( "FIN: (P_Base) ", __ENT, __LINE__, uMessage )
+		debugPrint( "FIN: (P_Base) ", __ENT, AllTrim(Ntrim(__LINE__)), uMessage )
 	endif
 endif
 
@@ -4291,14 +4313,14 @@ return( lMoved )
 METHOD FileRename( cOldFileName AS STRING, cNewFileName AS STRING ) AS LOGIC PASCAL CLASS P_Base
 return( SELF:FileMove( cOldFileName, cNewFileName ) )
 
-METHOD FileReadToArray( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC,  lDOSFormat := TRUE AS LOGIC ) AS ARRAY PASCAL CLASS P_Base
+METHOD FileReadToArray( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC,  lDOSFormat := TRUE AS LOGIC, nMaxLineSize := 512 AS INT ) AS ARRAY PASCAL CLASS P_Base
 // List die Datei <FileName> und gibt jede Zeile als Array zurück
 // <cFileName>       : Verzeichnis und Dateiname
 // [lReadEmptyLines] : Bei True werden auch Leerzeilen mitgelesen. Bei False werden diese ausgelassen
 // [lUnicode]        : Wenn es sich um eine Unicode-DAtei handelt, kann automatisch eine Umwandlung stattfinden
-return(SELF:StringToArray( SELF:FileReadToString( cFileName, lReadEmptyLines, lUnicode, lDOSFormat ), {CRLF} ))
+return(SELF:StringToArray( SELF:FileReadToString( cFileName, lReadEmptyLines, lUnicode, lDOSFormat, nMaxLineSize ), {CRLF} ))
 
-METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC, lDOSFormat := TRUE AS LOGIC) AS STRING PASCAL CLASS P_Base
+METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC, lDOSFormat := TRUE AS LOGIC, nMaxLineSize := 512 AS INT ) AS STRING PASCAL CLASS P_Base
 // List die Datei <FileName> und gibt den Inhalt als String zurück.
 // <cFileName>       : Verzeichnis und Dateiname
 // [lReadEmptyLines] : Bei True werden auch Leerzeilen mitgelesen. Bei False werden diese ausgelassen
@@ -4307,18 +4329,22 @@ METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, 
 	LOCAL hFRead             AS PTR
 	LOCAL cString := ""      AS STRING
 	LOCAL cLine              AS STRING
-	LOCAL nLen               AS INT
+//	LOCAL nLen               AS INT
 
 hFRead := FOpen2(cFileName, FO_READ + FO_EXCLUSIVE)
 IF( hfRead != f_ERROR )
    do while( !FEof(hfRead) )
-		cLine := ""
-		nLen := FRead(hfRead, @cLine, 4096)
-		if( nLen>0 )
-			cString += Left(cLine,nLen)
+		//cLine := ""
+		//nLen := FRead(hfRead, @cLine, 4096)
+		cLine := FReadLine( hfRead, nMaxLineSize )
+		if( Len(cLine) > 0 )
+//		if( nLen>0 )
+			cString += RTrim(cLine) + CRLF
       endif
    enddo
 	FClose( hfRead )
+
+	SELF:StringToDisk( "c:\temp\finfile.txt", cString, FALSE )
 
 	if( lDOSFormat )
 		cString := Oem2Ansi( cString )
