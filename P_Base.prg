@@ -1,4 +1,5 @@
 TEXTBLOCK == P_Base
+// FIN-CHeck
 
 DEFINE array_FIELDNAME            := 1
 DEFINE array_VALUE                := 2
