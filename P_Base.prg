@@ -1,5 +1,4 @@
 TEXTBLOCK == P_Base
-// FIN-CHeck
 
 DEFINE array_FIELDNAME            := 1
 DEFINE array_VALUE                := 2
@@ -312,7 +311,6 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayFromSql
 	DECLARE METHOD ArrayFromSqlStatement
 	DECLARE METHOD ArrayRecordFromSql
-	DECLARE METHOD GetSqlRecordSimple
 	DECLARE METHOD GetSqlRecord
 	DECLARE METHOD ArrayFromRecord
 	DECLARE METHOD ArrayToRecord
@@ -1197,22 +1195,6 @@ oStatement:Release()
 aArray := SELF:ArrayKonvert( aArray, aDefinition )
 
 return( aArray )
-
-METHOD GetSqlRecordSimple( oStatement AS ASQLStatement ) AS ARRAY PASCAL CLASS P_Base
-// Holt ein Array-Record aus einem SQL-Statment im Format {{#NAME, "Inhalt"}, {#NAME, "Inhalt"}} raus
-//
-// oStatement : Ein ASqlStatement, welches schon im Status oStatement:Fetch() sein muss
-	LOCAL aReturnRecord  AS ARRAY
-	LOCAL nCol           AS INT
-	LOCAL aFieldInfo     AS ARRAY
-
-aReturnRecord := {}
-FOR nCol := 1 UPTO oStatement:FCount
-	aFieldInfo := oStatement:GetFieldInfo(nCol)
-	AAdd( aReturnRecord, { AFieldInfo[FI_NAME], oStatement:Fget(nCol) } )
-NEXT nCol
-
-RETURN( aReturnRecord )
 
 METHOD GetSqlRecord( oStatement AS ASqlStatement, aColumns := NIL REF ARRAY ) AS ARRAY PASCAL CLASS P_Base
 // Holt ein Array-Record aus einem SQL-Statment im Format {{#NAME, "Inhalt"}, {#NAME, "Inhalt"}} raus
