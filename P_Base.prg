@@ -132,6 +132,8 @@ CLASS P_Base INHERIT AObject
 	/* -------------------------------------------------------------- */
 	DECLARE METHOD Integrate
 
+	DECLARE ACCESS cDbgPrefix
+	DECLARE ASSIGN cDbgPrefix
 	/* Datenbank */
 	DECLARE ACCESS oCommTranslation
 	DECLARE ACCESS oTypeTranslation
@@ -310,6 +312,7 @@ CLASS P_Base INHERIT AObject
 	DECLARE METHOD ArrayFromSql
 	DECLARE METHOD ArrayFromSqlStatement
 	DECLARE METHOD ArrayRecordFromSql
+	DECLARE METHOD GetSqlRecordSimple
 	DECLARE METHOD GetSqlRecord
 	DECLARE METHOD ArrayFromRecord
 	DECLARE METHOD ArrayToRecord
@@ -462,6 +465,8 @@ METHOD Init() CLASS P_Base
 	SELF:__aTrace                      := {}
 	SELF:ResetRunTime()
 
+	SELF:__cDbgPrefix                  := "FIN: (P_Base)"
+
 	/* CargoArray für die Methoden GetCargo und SetCargo */
 	SELF:__aCargo                      := {}
 
@@ -577,6 +582,12 @@ METHOD CleanUp() AS VOID PASCAL CLASS P_Base
 		SELF:__oTransactionManager := NULL_OBJECT
 	endif
 
+ACCESS cDbgPrefix   AS STRING PASCAL CLASS P_Base
+RETURN (SELF:__cDbgPrefix)
+
+ASSIGN cDbgPrefix( cNewPrefix AS STRING) AS STRING PASCAL CLASS P_Base
+SELF:__cDbgPrefix := cNewPrefix
+RETURN (SELF:__cDbgPrefix)
 METHOD TimerStart( symMarker AS SYMBOL ) AS VOID PASCAL CLASS P_Base
 SELF:CacheAdd( #P_Base_intern_TimerCounter, symMarker, Seconds() )
 
@@ -1187,7 +1198,23 @@ aArray := SELF:ArrayKonvert( aArray, aDefinition )
 
 return( aArray )
 
-METHOD GetSqlRecord( oStatement AS ASqlStatement, aColumns := nil REF ARRAY ) AS ARRAY PASCAL CLASS P_Base
+METHOD GetSqlRecordSimple( oStatement AS ASQLStatement ) AS ARRAY PASCAL CLASS P_Base
+// Holt ein Array-Record aus einem SQL-Statment im Format {{#NAME, "Inhalt"}, {#NAME, "Inhalt"}} raus
+//
+// oStatement : Ein ASqlStatement, welches schon im Status oStatement:Fetch() sein muss
+	LOCAL aReturnRecord  AS ARRAY
+	LOCAL nCol           AS INT
+	LOCAL aFieldInfo     AS ARRAY
+
+aReturnRecord := {}
+FOR nCol := 1 UPTO oStatement:FCount
+	aFieldInfo := oStatement:GetFieldInfo(nCol)
+	AAdd( aReturnRecord, { AFieldInfo[FI_NAME], oStatement:Fget(nCol) } )
+NEXT nCol
+
+RETURN( aReturnRecord )
+
+METHOD GetSqlRecord( oStatement AS ASqlStatement, aColumns := NIL REF ARRAY ) AS ARRAY PASCAL CLASS P_Base
 // Holt ein Array-Record aus einem SQL-Statment im Format {{#NAME, "Inhalt"}, {#NAME, "Inhalt"}} raus
 //
 // oStatement : Ein ASqlStatement, welches schon im Status oStatement:Fetch() sein muss
@@ -1200,28 +1227,29 @@ METHOD GetSqlRecord( oStatement AS ASqlStatement, aColumns := nil REF ARRAY ) AS
 	LOCAL aFieldInfo     AS ARRAY
 
 aReturnRecord := {}
-if( IsNil( aColumns ) )
+IF( IsNil( aColumns ) )
 	aColumns := {}
-	for nCol := 1 upto oStatement:FCount
+	FOR nCol := 1 UPTO oStatement:FCount
 		aFieldInfo := oStatement:GetFieldInfo(nCol)
-		AAdd( aReturnRecord, { aFieldInfo[FI_NAME], oStatement:Fget(nCol) } )
+		AAdd( aReturnRecord, { AFieldInfo[FI_NAME], oStatement:Fget(nCol) } )
 		AAdd( aColumns, aFieldInfo[FI_NAME] )
-	next nCol
-else
-	for nCol := 1 upto ALen(aColumns)
-		if( UsualType(aColumns[nCol]) == SYMBOL )
+	NEXT nCol
+ELSE
+	FOR nCol := 1 UPTO ALen(aColumns)
+		IF( UsualType(aColumns[nCol]) == SYMBOL )
 			symField := aColumns[nCol]
-		else
+		ELSE
 			symField := String2Symbol( aColumns[nCol] )
-		endif
+		ENDIF
 		AAdd( aReturnRecord, { aColumns[nCol], oStatement:FgetN( symField ) } )
-	next nCol
-endif
+	NEXT nCol
+ENDIF
 
-return( aReturnRecord )
+RETURN( aReturnRecord )
 
 
-METHOD ArrayToSql( cTableName AS STRING, aInputArray AS ARRAY, aColumnNames := nil AS ARRAY, aDefinition := nil as ARRAY ) AS VOID PASCAL CLASS P_Base
+//HWS190510 - Hinzufügen eines schalters, ob die Tabelle vorher gelöscht werden soll, wenn Sie existiert
+METHOD ArrayToSql( cTableName AS STRING, aInputArray AS ARRAY, aColumnNames := NIL AS ARRAY, aDefinition := NIL AS ARRAY, lDeleteTableIfExists := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
 //
 // Legt auf dem Sql-Server eine Tabelle an und schreibt das Array dort rein
 // cTableName         : "FIN"
@@ -1235,6 +1263,7 @@ METHOD ArrayToSql( cTableName AS STRING, aInputArray AS ARRAY, aColumnNames := n
 
 
 	LOCAL oCreateTable                AS ASqlStatement
+	LOCAL oDropTable                  AS ASqlStatement
 	LOCAL cColumns := ""              AS STRING
 	LOCAL cValues := ""               AS STRING
 	LOCAL nRow, nCol                  AS INT
@@ -1253,16 +1282,23 @@ if( ALen( aInputArray ) > 0 .and. UsualType(aInputArray[1]) != ARRAY )
 	for nRow := 1 upto ALen( aInputArray )
 		AAdd( aArray, { aInputArray[nRow] } )
 	next nRow
+	SELF:DbgArray(aArray,"Umformatiert auf 2 Dimensionen",TRUE)
 else
 	aArray := aInputArray
-endif
+	SELF:DbgArray(aArray,"Übernommenes Array mit 2 Dimensionen",TRUE)
+ENDIF
 
+//HWS190510 - Die Definition der Spalten, sollte vor der Definition der Typen passieren,
+//            da auch die Parameter-Reihenfolge so ist, kann es sonst sein, dass die
+//            Columns nicht berücksichtigt werden
 //
-// Wenn keine Definitionen angegeben sind,
-// dann jetzt alles mit STRING initialisieren
+// Wenn keine Spalten-Namen angegeben sind,
+// dann jetzt welche ausdenken
 //
-if( IsNil(aDefinition) )
-	aDefinition := {}
+IF( IsNil(aColumnNames) )
+	// Es ist keine Definition vorganden. Alle Elemente werden mit Name Column1, Column2 etc.
+	// und Typ varchar(255) angelegt. Hier die Definition füllen
+	aColumnNames := {}
 	if( ALen(aArray) != 0 )
 		for nCol := 1 upto ALen(aArray[1])
 			AAdd( aDefinition, "STRING" )
@@ -1284,6 +1320,20 @@ if( IsNil(aColumnNames) )
 		next nRow
 	endif
 endif
+
+//
+// Wenn keine Definitionen angegeben sind,
+// dann jetzt alles mit STRING initialisieren
+//
+// HWS190510 - Hier jetzt die Typen basierend auf den Columns erstellen!
+IF( IsNil(aDefinition) )
+	aDefinition := {}
+	IF( ALen(aColumnNames) != 0 )
+		FOR nCol := 1 UPTO ALen(aColumnNames)
+			AAdd( aDefinition, "STRING" )
+		NEXT nCol
+	ENDIF
+ENDIF
 
 //
 // Aus den <aDefinition> nun ein SQL-Kompatibles aTempDefinition aufbauen
@@ -1308,6 +1358,21 @@ for nCol:=1 upto ALen(aTempDefinition)
 		cColumns += ", "
 	endif
 next nCol
+
+// HWS190510
+// Tabelle löschen, wenn gewünscht
+//
+IF (lDeleteTableIfExists)
+	SELF:dbg("DELETE TABLE "+cTableName)
+	oDropTable := SELF:oTransactionManager:CreateStmt(	;
+		SELF:StringFormat("IF exists(select * from sysobjects where ID = object_id('[_ams_sql_user_].[#]') and objectproperty(ID, 'IsTable') = 1) drop Table [_ams_sql_user_].[#]",{cTableName,cTableName}))
+	IF oDropTable:Prepare()                .AND.;
+		oDropTable:ExecuteBatch()
+	ELSE
+		SELF:MessageFormat( "Fehler beim löschen der Tabelle #. #", { cTableName, oDropTable:Status:GetMessage() }, PROT_ART_ERROR, TRUE )
+	ENDIF
+	oDropTable:Release()
+ENDIF
 
 //
 // Tabelle erstellen
@@ -1598,6 +1663,8 @@ METHOD ArrayFromRecord( oRecordOrServer AS USUAL, aFields := nil AS ARRAY, aRena
 	LOCAL oRecord                 AS AReadRecord
 
 aValues := {}
+oRecord := NULL_OBJECT
+
 if( IsInstanceOfUsual( oRecordOrServer, #AWriteRecord ) .or. IsInstanceOfUsual( oRecordOrServer, #AServer )  .or. IsInstanceOfUsual( oRecordOrServer, #AReadRecord) )
 	if( IsInstanceOfUsual( oRecordOrServer, #AServer ) )
 		oServer := oRecordOrServer
@@ -1605,8 +1672,10 @@ if( IsInstanceOfUsual( oRecordOrServer, #AWriteRecord ) .or. IsInstanceOfUsual( 
 		debugPrint( "FIN: ", __ENT, __LINE__, "AServer", oRecord:FCount)
 	else
 		oRecord := oRecordOrServer
-	endif
-
+		oRecord:AddRef()
+	ENDIF
+    
+    IF (oRecord != NULL_OBJECT)
 	for x:=1 upto oRecord:FCount
 		symFieldName := oRecord:StructInfo:GetFieldName(x)
 		if( IsNil(aFields) .or. AScan( aFields, symFieldName ) != 0 )
@@ -1615,11 +1684,10 @@ if( IsInstanceOfUsual( oRecordOrServer, #AWriteRecord ) .or. IsInstanceOfUsual( 
 			AAdd( aValues, { SELF:RenameKeyField(symFieldName, aRename), oRecord:FgetPos(x) } )
 		endif
 	next x
-
-	oRecord:Release()
-	if( oServer != NULL_OBJECT )
-		oServer:Release()
-	endif
+    ENDIF
+	
+	SELF:ReleaseIfNotNullObject(oRecord)
+//	SELF:ReleaseIfNotNullObject(oServer)
 else
 	SELF:MessageFormat( "ArrayFromRecord wird mit einem Parameter vom Typ # gerufen, muss aber vom Typ AWriteRecord, AReadRecord oder AServer sein", {ClassName(oRecord)}, PROT_ART_ERROR, TRUE )
 endif
@@ -2066,10 +2134,10 @@ do while(nFound != 0)
 		AAdd( aArray, Eval( cbCodeBlock, Left(cString, nFound-1)) )
 		if( nFound==Len(cString) )
 			// Ausnahmesituation: Delimiter letztes Zeichen in der Zeile
-
-			if( x>0 )
-				cString := Right( cString, int(Len(cString)) - (nFound-2) - int(Len(cNextToken)))
-			endif
+			//cString := Right( cString, Len(cString) - (nFound-2) - Len(cNextToken))
+			// Da nFound == Len(cString), sind wir schon am Ende des Strings... - jetzt müssen wir nur noch prüfen, ob das Token
+			// dort steht....
+			cString := Right( cString, Len(cNextToken) )
 			if( cString == cNextToken )
 				cString := ""
 				AAdd( aArray, "" )
@@ -2602,7 +2670,7 @@ METHOD GetFieldsFromTable( symTable AS SYMBOL, aKeyFields AS ARRAY, aFields AS A
 	LOCAL x                AS INT
 
 aValues := {}
-oRecord := SELF:GetReadRecordFromTable( symTable, aKeyFields )
+oRecord := SELF:GetReadRecordFromTable( symTable, aKeyFields, , lErrorIfEntryNotExits )
 if( oRecord != NULL_OBJECT )
 	for x:=1 upto ALen(aFields)
 		do case
@@ -2846,7 +2914,7 @@ endif
 oStmt:Release()
 return( lReturn )
 
-METHOD CreateSqlStatement( cStatement AS STRING, uMeldung AS USUAL, lReader := TRUE AS LOGIC, aFelder := NIL AS USUAL ) AS ASqlStatement PASCAL CLASS P_Base
+METHOD CreateSQLStatement( cStatement AS STRING, uMeldung AS USUAL, lReader := TRUE AS LOGIC, aFelder := NIL AS USUAL, lWithStructTranslate:=TRUE AS LOGIC, lWithPrepare:=TRUE AS LOGIC ) AS ASqlStatement PASCAL CLASS P_Base
 //
 // Parameter:
 // 	cStatement     (STRING)     - "SELECT * FROM KAVD000 WHERE AUFTRAG = ? and AUFPOS = ?"
@@ -2864,14 +2932,17 @@ METHOD CreateSqlStatement( cStatement AS STRING, uMeldung AS USUAL, lReader := T
 	LOCAL aFields         AS ARRAY
 	LOCAL cMeldung        AS STRING
 
-oStmt := SELF:oTransactionManager:CreateStmt( cStatement )
+oStmt := SELF:oTransactionManager:CreateStmt( cStatement,,!lWithStructTranslate )
 
 /* Prepare */
+IF ((lWithPrepare .OR. aFelder != NIL .OR. lReader) .AND. oStmt != NULL_OBJECT)
 lOK := oStmt:Prepare()
+ELSE
+	lOK := (oStmt != NULL_OBJECT)
+ENDIF
 
 /* ParamPut */
-if( lOK )
-	if( aFelder != NIL .and. ALen(aFelder) > 0 )
+IF( lOK .AND. aFelder != NIL .AND. ALen(aFelder) > 0)
 		for x:=1 upto ALen(aFelder)
 			if( !oStmt:ParamPut(x,aFelder[x]) )
 				lOK := FALSE
@@ -3990,38 +4061,39 @@ next x
 return( aArray )
 
 
-METHOD DbgMessage( cMessage AS STRING, aValues := nil AS ARRAY, lFrame := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
-
+METHOD DbgMessage( cMessage AS STRING, aValues := NIL AS ARRAY, lFrame := FALSE AS LOGIC, lDisplayAnyway := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
 if( !IsNil(aValues) )
 	cMessage := SELF:StringFormat( cMessage, aValues )
 endif
 
-if( lFrame )
-	SELF:dbg(dbg_Line)
-endif
-SELF:dbg(cMessage)
-if( lFrame )
-	SELF:dbg(dbg_Line)
-endif
+// Zeichnet eine Line über eine Konstante.... (Frame?)
+IF( lFrame )
+	SELF:dbg(dbg_Line,lDisplayAnyway)
+ENDIF
+SELF:dbg(cMessage,lDisplayAnyway)    
 
-METHOD DbgArray( aArray AS ARRAY, cHeader := "" AS STRING, lFrame := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
+IF( lFrame )
+	SELF:dbg(dbg_Line,lDisplayAnyway)
+ENDIF
+
+METHOD DbgArray( aArray AS ARRAY, cHeader := "" AS STRING, lFrame := FALSE AS LOGIC, lDisplayAnyway := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
 
 lFrame := !Empty(cHeader)
 
 if( lFrame )
-	SELF:dbg(dbg_Line)
+	SELF:dbg(dbg_Line,lDisplayAnyway)
 endif
 if( !Empty( cHeader ) )
-	SELF:dbg( SELF:StringAlign( cHeader, Len(dbg_Line), sa_middle ) )
+	SELF:dbg( SELF:StringAlign( cHeader, Len(dbg_Line), sa_middle ), lDisplayAnyway )
 	if( lFrame )
-		SELF:dbg(dbg_Line)
+		SELF:dbg(dbg_Line,lDisplayAnyway)
 	endif
 endif
 
-SELF:dbg(aArray)
+SELF:dbg(aArray,lDisplayAnyway)
 
 if( lFrame )
-	SELF:dbg(dbg_Line)
+	SELF:dbg(dbg_Line,lDisplayAnyway)
 endif
 
 METHOD DbgRecord( oRecord AS USUAL, cHeader := "" AS STRING, lFrame := FALSE AS LOGIC ) AS VOID PASCAL CLASS P_Base
@@ -4280,16 +4352,21 @@ ENDIF
 
 RETURN lDeleted
 
-METHOD FileCopy( cSourceFile AS STRING, cTargetFile AS STRING ) AS LOGIC PASCAL CLASS P_Base
+METHOD FileCopy( cSourceFile AS STRING, cTargetFile AS STRING, lCreateTargetFolder := FALSE AS LOGIC ) AS LOGIC PASCAL CLASS P_Base
 
      LOCAL lCopied := FALSE     AS LOGIC
      LOCAL cTargetPath          AS STRING
 
 cTargetPath := SELF:GetPathNameFromPath(cTargetFile)
 FErase( cTargetFile ) // String2Psz(cTargetFile) )
+
+IF (lCreateTargetFolder .AND. !SELF:FolderExists(cTargetPath))
+	SELF:FolderCreate( cTargetPath )
+ENDIF
+
 if( SELF:FolderExists( cTargetPath ) )
 	IF( SELF:FileExists( cSourceFile ) )
-			debugPrint( "FIN: ", __ENT, __LINE__, "TARGET", cTargetFile)
+		SELF:DbgMessage("TARGET '#'",{cTargetFile})
 	     lCopied := FCopy( cSourceFile, cTargetFile )
 	     IF( !lCopied )
 				SELF:MessageFormat( "Die Datei # konnte nicht kopiert werden. Fehler: #", {cSourceFile, DosErrString(FError())}, PROT_ART_WARNING )
@@ -4302,11 +4379,11 @@ else
 endif
 RETURN lCopied
 
-METHOD FileMove( cSourceFile AS STRING, cTargetFile AS STRING) AS LOGIC PASCAL CLASS P_Base
+METHOD FileMove( cSourceFile AS STRING, cTargetFile AS STRING, lCreateTargetFolder := FALSE AS LOGIC) AS LOGIC PASCAL CLASS P_Base
 
      LOCAL lMoved := FALSE     AS LOGIC
 
-if(lMoved := SELF:FileCopy( cSourceFile, cTargetFile ))
+IF(lMoved := SELF:FileCopy( cSourceFile, cTargetFile, lCreateTargetFolder ))
 	lMoved := SELF:FileDelete( cSourceFile )
 endif
 return( lMoved )
@@ -4314,14 +4391,18 @@ return( lMoved )
 METHOD FileRename( cOldFileName AS STRING, cNewFileName AS STRING ) AS LOGIC PASCAL CLASS P_Base
 return( SELF:FileMove( cOldFileName, cNewFileName ) )
 
-METHOD FileReadToArray( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC,  lDOSFormat := TRUE AS LOGIC, nMaxLineSize := 512 AS INT ) AS ARRAY PASCAL CLASS P_Base
+// HWS20190504 - Optional kann jetzt eine Zeilen-Endung mitgegeben werden - nicht immer wird CRLF übermittelt! CRLF ist aber default!cEndLine := IIF(cLineEnding != "",cLineEnding,CRLF)
+METHOD FileReadToArray( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC,  lDosFormat := TRUE AS LOGIC, cLineEnding := "" AS STRING ) AS ARRAY PASCAL CLASS P_Base
+	LOCAL cEndLine			AS STRING
+	cEndLine := IIF(cLineEnding != "",cLineEnding,CRLF)
 // List die Datei <FileName> und gibt jede Zeile als Array zurück
 // <cFileName>       : Verzeichnis und Dateiname
 // [lReadEmptyLines] : Bei True werden auch Leerzeilen mitgelesen. Bei False werden diese ausgelassen
 // [lUnicode]        : Wenn es sich um eine Unicode-DAtei handelt, kann automatisch eine Umwandlung stattfinden
-return(SELF:StringToArray( SELF:FileReadToString( cFileName, lReadEmptyLines, lUnicode, lDOSFormat, nMaxLineSize ), {CRLF} ))
+// [cLineEnding]     : Alternative Zeilen-Endung (z.B. nur LF) Default ist weiterhin CRLF
+RETURN(SELF:StringToArray( SELF:FileReadToString( cFileName, lReadEmptyLines, lUnicode, lDosFormat, cEndLine), {cEndLine} ))
 
-METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC, lDOSFormat := TRUE AS LOGIC, nMaxLineSize := 512 AS INT ) AS STRING PASCAL CLASS P_Base
+METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, lUnicode := FALSE AS LOGIC, lDosFormat := TRUE AS LOGIC, cLineEnding := "" AS STRING) AS STRING PASCAL CLASS P_Base
 // List die Datei <FileName> und gibt den Inhalt als String zurück.
 // <cFileName>       : Verzeichnis und Dateiname
 // [lReadEmptyLines] : Bei True werden auch Leerzeilen mitgelesen. Bei False werden diese ausgelassen
@@ -4330,22 +4411,21 @@ METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, 
 	LOCAL hFRead             AS PTR
 	LOCAL cString := ""      AS STRING
 	LOCAL cLine              AS STRING
-//	LOCAL nLen               AS INT
+	LOCAL nLen               AS INT
+	LOCAL cEndLine			AS STRING
+	
+cEndLine := IIF(cLineEnding != "",cLineEnding,CRLF)
 
 hFRead := FOpen2(cFileName, FO_READ + FO_EXCLUSIVE)
 IF( hfRead != f_ERROR )
    do while( !FEof(hfRead) )
-		//cLine := ""
-		//nLen := FRead(hfRead, @cLine, 4096)
-		cLine := FReadLine( hfRead, nMaxLineSize )
-		if( Len(cLine) > 0 )
-//		if( nLen>0 )
-			cString += RTrim(cLine) + CRLF
+		cLine := ""
+		nLen := FRead(hfRead, @cLine, 4096)
+		IF( nLen>0 )
+			cString += Left(cLine,nLen)
       endif
    enddo
 	FClose( hfRead )
-
-	SELF:StringToDisk( "c:\temp\finfile.txt", cString, FALSE )
 
 	if( lDOSFormat )
 		cString := Oem2Ansi( cString )
