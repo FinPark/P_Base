@@ -1,4 +1,4 @@
-== TEXTBLOCK P_BaseFileReader
+== TEXTBLOCK P_BaseFileReadStream
 
 /*
 	Diese Klasse ist für das Einlesen großer Textdateien gedacht, die ein Einlesen in ein
@@ -29,7 +29,7 @@
 	
 	
 */
-CLASS P_BaseFileReader INHERIT AObject
+CLASS P_BaseFileReadStream INHERIT AObject
 
 	//HWS - Open, Close und FetchRow für SEHR große Dateien, die eben nicht
 	//einfach als String gelesen werden können!
@@ -60,7 +60,7 @@ CLASS P_BaseFileReader INHERIT AObject
 	PROTECT __cCurrentFileName				AS STRING
 	PROTECT __aLines						AS ARRAY
 
-METHOD INIT( oP_Base ) CLASS P_BaseFileReader
+METHOD INIT( oP_Base ) CLASS P_BaseFileReadStream
 	SUPER:Init()
 	IF( !IsNil( oP_Base ) .AND. IsInstanceOfUsual(oP_Base, #P_Base))
 		SELF:__oBase := oP_Base
@@ -72,13 +72,13 @@ METHOD INIT( oP_Base ) CLASS P_BaseFileReader
 	SELF:__aLines := {}
 	SELF:oBase:dbg("P_BaseFileReader instanziert")
 	
-METHOD Destroy() AS VOID PASCAL CLASS P_BaseFileReader
+METHOD Destroy() AS VOID PASCAL CLASS P_BaseFileReadStream
 	SELF:Close()
 	SELF:__oBase:Release()
 	SELF:oBase:dbg("P_BaseFileReader zerstört.")
 	SUPER:Destroy()
 	
-METHOD Open( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileReader
+METHOD Open( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileReadStream
 	// Oha - da will jemand eine Datei öffnen, obwohl eine offen ist!
 	IF !Empty(SELF:__cCurrentFileName)
 		SELF:oBase:DbgMessage("ACHTUNG - es war noch eine Datei im Zugriff # - die wurde jetzt automatisch geschlossen!",{ SELF:__cCurrentFileName })
@@ -101,7 +101,7 @@ METHOD Open( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileReader
 	ENDIF
 RETURN (!SELF:oBase:lError)
 
-METHOD FetchRow() AS STRING PASCAL CLASS P_BaseFileReader
+METHOD FetchRow() AS STRING PASCAL CLASS P_BaseFileReadStream
 	LOCAL cResult := ""			AS STRING
 	LOCAL nPos := 0				AS INT
  
@@ -137,7 +137,7 @@ RETURN cResult
 /*
 	Lädt weiteren Text in den Buffer
 */
-METHOD _LoadBuffer() AS VOID PASCAL CLASS P_BaseFileReader
+METHOD _LoadBuffer() AS VOID PASCAL CLASS P_BaseFileReadStream
 	LOCAL cReadBuff := ""		AS STRING
 	LOCAL nReadCnt := 0			AS INT
 
@@ -153,14 +153,14 @@ METHOD _LoadBuffer() AS VOID PASCAL CLASS P_BaseFileReader
 	ENDIF
 RETURN
 
-METHOD _InternEOF() AS LOGIC PASCAL CLASS P_BaseFileReader
+METHOD _InternEOF() AS LOGIC PASCAL CLASS P_BaseFileReadStream
 	LOCAL lResult := TRUE		AS LOGIC
 	IF (IsPtr(SELF:__hndFile))
 		lResult := FEof(SELF:__hndFile)
 	ENDIF 
 RETURN lResult
  
-METHOD EOF() AS LOGIC PASCAL CLASS P_BaseFileReader
+METHOD EOF() AS LOGIC PASCAL CLASS P_BaseFileReadStream
 	LOCAL lResult := FALSE	AS LOGIC
 	
 	lResult := (SELF:_InternEOF() .AND. Len(SELF:__cCurrentBuff) < 1)
@@ -169,7 +169,7 @@ METHOD EOF() AS LOGIC PASCAL CLASS P_BaseFileReader
 	ENDIF
 RETURN lResult 
 
-METHOD Close() AS VOID PASCAL CLASS P_BaseFileReader
+METHOD Close() AS VOID PASCAL CLASS P_BaseFileReadStream
 	IF (IsPtr(SELF:__hndFile))
 		FClose(SELF:__hndFile)
 		SELF:oBase:DbgMessage("Close Filehandle: #",{ SELF:__cCurrentFileName } )
@@ -177,7 +177,7 @@ METHOD Close() AS VOID PASCAL CLASS P_BaseFileReader
 	SELF:__cCurrentFileName := ""
 RETURN
 
-METHOD Load( cb := NIL  AS USUAL ) AS VOID PASCAL CLASS P_BaseFileReader
+METHOD Load( cb := NIL  AS USUAL ) AS VOID PASCAL CLASS P_BaseFileReadStream
 	LOCAL cLine := ""
 	LOCAL cNewLine := ""
 	
@@ -202,33 +202,33 @@ METHOD Load( cb := NIL  AS USUAL ) AS VOID PASCAL CLASS P_BaseFileReader
 	ENDIF
 RETURN
 
-METHOD Unload() AS VOID PASCAL CLASS P_BaseFileReader
+METHOD Unload() AS VOID PASCAL CLASS P_BaseFileReadStream
 	SELF:__aLines := {}
 RETURN
 
-METHOD GetRow(nPos AS INT) AS STRING PASCAL CLASS P_BaseFileReader
+METHOD GetRow(nPos AS INT) AS STRING PASCAL CLASS P_BaseFileReadStream
 	LOCAL cResult := ""
 	IF (nPos > 0 .AND. nPos < SELF:Count)
 		cResult := SELF:__aLines[nPos]
 	ENDIF
 RETURN cResult
 
-METHOD ForEach( cb AS CODEBLOCK ) AS VOID PASCAL CLASS P_BaseFileReader
+METHOD ForEach( cb AS CODEBLOCK ) AS VOID PASCAL CLASS P_BaseFileReadStream
 	LOCAL X		AS INT
 	FOR X:=1 UPTO SELF:Count
 		Eval(cb,X,SELF:GetRow(X))
 	NEXT X
 RETURN
 
-ACCESS lError	AS LOGIC PASCAL CLASS P_BaseFileReader
+ACCESS lError	AS LOGIC PASCAL CLASS P_BaseFileReadStream
 // Wenn ein Fehler protokolliert wurde, wird hier TRUE zurückgegeben
 RETURN( SELF:oBase:lError )
 
 
-ACCESS oBase	AS P_BASE PASCAL CLASS P_BaseFileReader
+ACCESS oBase	AS P_BASE PASCAL CLASS P_BaseFileReadStream
 // Liefert das übergebene oder erstellte oBase-Objekt
 RETURN( SELF:__oBase )
 
-ACCESS Count	AS INT PASCAL CLASS P_BaseFileReader
+ACCESS Count	AS INT PASCAL CLASS P_BaseFileReadStream
 // Liefert die Zeilen, die mit Load() geladen wurden
 RETURN( ALen(SELF:__aLines) )

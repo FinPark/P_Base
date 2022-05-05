@@ -1,11 +1,11 @@
-== TEXTBLOCK P_BaseFileWriter
+== TEXTBLOCK P_BaseFileWriteStream
 
 /*
 	Diese Klasse ist für das DIREKTE Schreiben in eine ASCII-Datei gedacht. Es soll hier bewusst auf
 	Arrays o. Ä. verzichtet werden, um den internen Speicher nicht zu belasten und alles direkt
 	auf Platte zu schreiben.
 */
-CLASS P_BaseFileWriter INHERIT AObject
+CLASS P_BaseFileWriteStream INHERIT AObject
 
 	//HWS - Open, Close und FetchRow für SEHR große Dateien, die eben nicht
 	//einfach als String gelesen werden können!
@@ -31,7 +31,7 @@ CLASS P_BaseFileWriter INHERIT AObject
 	PROTECT __hndFile						AS PTR
 	PROTECT __cCurrentFileName				AS STRING
 
-METHOD INIT( oP_Base ) CLASS P_BaseFileWriter
+METHOD INIT( oP_Base ) CLASS P_BaseFileWriteStream
 	SUPER:Init()
 	IF( !IsNil( oP_Base ) .AND. IsInstanceOfUsual(oP_Base, #P_Base))
 		SELF:__oBase := oP_Base
@@ -42,13 +42,13 @@ METHOD INIT( oP_Base ) CLASS P_BaseFileWriter
 	SELF:__cCurrentFileName := ""
 	SELF:oBase:dbg("P_BaseFileWriter instanziert")
 	
-METHOD Destroy() AS VOID PASCAL CLASS P_BaseFileWriter
+METHOD Destroy() AS VOID PASCAL CLASS P_BaseFileWriteStream
 	SELF:Close()
 	SELF:__oBase:Release()
 	SELF:oBase:dbg("P_BaseFileWriter zerstört.")
 	SUPER:Destroy()
 
-METHOD _InternalOpen( cFileName AS STRING, nMode AS INT) AS LOGIC PASCAL CLASS P_BaseFileWriter
+METHOD _InternalOpen( cFileName AS STRING, nMode AS INT) AS LOGIC PASCAL CLASS P_BaseFileWriteStream
 	LOCAL cPath	AS STRING
 	
 	// Oha - da will jemand eine Datei öffnen, obwohl eine offen ist!
@@ -83,14 +83,14 @@ METHOD _InternalOpen( cFileName AS STRING, nMode AS INT) AS LOGIC PASCAL CLASS P
 	ENDIF
 RETURN SELF:oBase:lError
 
-METHOD WriteFormatted(cString AS STRING, aParams AS ARRAY, nLen:=0 AS INT) AS VOID PASCAL CLASS P_BaseFileWriter
+METHOD WriteFormatted(cString AS STRING, aParams AS ARRAY, nLen:=0 AS INT) AS VOID PASCAL CLASS P_BaseFileWriteStream
 	SELF:WriteLine( SELF:oBase:StringFormat(cString,aParams,nLen) )
 RETURN
 
-METHOD WriteLine(cString AS STRING) AS VOID PASCAL CLASS P_BaseFileWriter
+METHOD WriteLine(cString AS STRING) AS VOID PASCAL CLASS P_BaseFileWriteStream
 	SELF:Write(cString+CRLF)
 	
-METHOD Write(cString AS STRING) AS VOID PASCAL CLASS P_BaseFileWriter
+METHOD Write(cString AS STRING) AS VOID PASCAL CLASS P_BaseFileWriteStream
 	LOCAL nBtWritten := 0
 
 	IF !Empty(SELF:__cCurrentFileName)
@@ -101,17 +101,17 @@ METHOD Write(cString AS STRING) AS VOID PASCAL CLASS P_BaseFileWriter
 	ENDIF
 RETURN
 
-METHOD OpenCreate( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriter
+METHOD OpenCreate( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriteStream
 RETURN SELF:_InternalOpen(cFileName,1)
 
-METHOD OpenOverwrite( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriter
+METHOD OpenOverwrite( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriteStream
 RETURN SELF:_InternalOpen(cFileName, 3) 
 
-METHOD OpenAppend( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriter
+METHOD OpenAppend( cFileName AS STRING) AS LOGIC PASCAL CLASS P_BaseFileWriteStream
 RETURN SELF:_InternalOpen(cFileName, 2)
 
 
-METHOD Close() AS VOID PASCAL CLASS P_BaseFileWriter
+METHOD Close() AS VOID PASCAL CLASS P_BaseFileWriteStream
 	IF (IsPtr(SELF:__hndFile))
 		FClose(SELF:__hndFile)
 		SELF:oBase:DbgMessage("Close Filehandle: #",{ SELF:__cCurrentFileName } )
@@ -119,11 +119,11 @@ METHOD Close() AS VOID PASCAL CLASS P_BaseFileWriter
 	SELF:__cCurrentFileName := ""
 RETURN
 
-ACCESS lError	AS LOGIC PASCAL CLASS P_BaseFileWriter
+ACCESS lError	AS LOGIC PASCAL CLASS P_BaseFileWriteStream
 // Wenn ein Fehler protokolliert wurde, wird hier TRUE zurückgegeben
 RETURN( SELF:oBase:lError )
 
 
-ACCESS oBase	AS P_BASE PASCAL CLASS P_BaseFileWriter
+ACCESS oBase	AS P_BASE PASCAL CLASS P_BaseFileWriteStream
 // Liefert das übergebene oder erstellte oBase-Objekt
 RETURN( SELF:__oBase )
