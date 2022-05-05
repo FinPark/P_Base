@@ -1105,7 +1105,7 @@ for x:=1 upto aLen( SELF:__aChildNodes )
 	endif
 next x
 
-METHOD XmlTree( lWithID := TRUE, lWithAttributes := TRUE, lWithPath := FALSE AS LOGIC, lWithValue := TRUE AS LOGIC, lWithLevel := FALSE AS LOGIC ) AS STRING PASCAL CLASS P_XmlNode
+METHOD XmlTree( lWithID := TRUE, lWithAttributes := TRUE, lWithPath := FALSE AS LOGIC, lWithValue := TRUE AS LOGIC, lWithLevel := FALSE AS LOGIC, lWithDelimiter := FALSE AS LOGIC ) AS STRING PASCAL CLASS P_XmlNode
 /*
 	Es wird ein Xml-Baum erzeugt und als String zurückgegeben
 	-------------------------------------------------------------------
@@ -1143,6 +1143,9 @@ for x:=1 upto aLen( aNodes )
 	endif
 
 	cString += IIF( lWithPath, "    " + oNode:cPath , "" ) + CRLF
+	if( lWithDelimiter )
+		cString += SELF:oBase:StringRepeat(60, "-" )+CRLF
+	endif
 next x
 return( cString )
 

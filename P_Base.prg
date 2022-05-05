@@ -1,5 +1,4 @@
 TEXTBLOCK == P_Base
-// FIN-CHeck
 
 DEFINE array_FIELDNAME            := 1
 DEFINE array_VALUE                := 2
@@ -433,6 +432,7 @@ CLASS P_Base INHERIT AObject
 	PROTECT __lReleaseVBEngine                AS LOGIC
 	PROTECT __oCommTranslationMatrix          AS P_BaseMatrix
 	PROTECT __oTypeTranslationMatrix          AS P_BaseMatrix
+	PROTECT __cDbgPrefiX                      AS STRING
 
 	/* wird für VBEngine benötigt */
 	PROTECT _oMsgStack                        AS AStatusStack
@@ -730,7 +730,7 @@ endif
 return( SELF:__oTypeTranslationMatrix )
 
 ACCESS lIsDeveloperSystem AS LOGIC PASCAL CLASS P_Base
-return( _GetDebug() .OR. _GetSvcInfo() )
+return( _GetDebug() )
 
 ASSIGN oTransactionManager( oT AS Servermanager ) AS ServerManager PASCAL CLASS P_Base
 // Zuweisen eines TransactionsManagers. Mit diesem wird dann gearbeitet
@@ -1674,7 +1674,7 @@ if( IsInstanceOfUsual( oRecordOrServer, #AWriteRecord ) .or. IsInstanceOfUsual( 
 		oRecord := oRecordOrServer
 		oRecord:AddRef()
 	ENDIF
-    
+
     IF (oRecord != NULL_OBJECT)
 	for x:=1 upto oRecord:FCount
 		symFieldName := oRecord:StructInfo:GetFieldName(x)
@@ -1685,7 +1685,7 @@ if( IsInstanceOfUsual( oRecordOrServer, #AWriteRecord ) .or. IsInstanceOfUsual( 
 		endif
 	next x
     ENDIF
-	
+
 	SELF:ReleaseIfNotNullObject(oRecord)
 //	SELF:ReleaseIfNotNullObject(oServer)
 else
@@ -2943,12 +2943,11 @@ ENDIF
 
 /* ParamPut */
 IF( lOK .AND. aFelder != NIL .AND. ALen(aFelder) > 0)
-		for x:=1 upto ALen(aFelder)
-			if( !oStmt:ParamPut(x,aFelder[x]) )
-				lOK := FALSE
-			endif
-		next x
-	endif
+	for x:=1 upto ALen(aFelder)
+		if( !oStmt:ParamPut(x,aFelder[x]) )
+			lOK := FALSE
+		endif
+	next x
 endif
 
 /* Execute */
@@ -3521,8 +3520,8 @@ return( uValue )
 
 METHOD StringToUnicode( cString AS STRING ) AS STRING PASCAL CLASS P_Base
 // Konvertiert einen String in das Unicode-Format (UTF8)
-return( DynWide2Utf( VO2DynWideString(cString) )	 )
-
+//return( DynWide2Utf( VO2DynWideString(cString) )	 )
+return( RecodeDynWideString(VO2DynWideString(cString,,FALSE),CP_UTF8))
 METHOD StringFromUnicode( cString AS STRING ) AS STRING PASCAL CLASS P_Base
 // Konvertiert einen String in das Unicode-Format (UTF8)
 return( SELF:StringConvertCodePage( cString, CP_UTF8, CP_ACP) )
@@ -4070,7 +4069,7 @@ endif
 IF( lFrame )
 	SELF:dbg(dbg_Line,lDisplayAnyway)
 ENDIF
-SELF:dbg(cMessage,lDisplayAnyway)    
+SELF:dbg(cMessage,lDisplayAnyway)
 
 IF( lFrame )
 	SELF:dbg(dbg_Line,lDisplayAnyway)
@@ -4208,7 +4207,7 @@ if( SELF:FolderExists( cPath ) )
 		//
 		// Verzeichnisse
 		//
-		aTemp := SELF:GetFolderFromDir( cPath, TRUE )
+		aTemp := SELF:GetFolderFromDir( cPath, FALSE )
 		for x:=1 upto ALen( aTemp )
 			aSubFiles := SELF:GetFilesFromDir( aTemp[x], cPattern, TRUE, cbCodeBlock )
 			aFiles := SELF:ArrayCombine( aFiles, aSubFiles )
@@ -4413,7 +4412,7 @@ METHOD FileReadToString( cFileName AS STRING, lReadEmptyLines := TRUE AS LOGIC, 
 	LOCAL cLine              AS STRING
 	LOCAL nLen               AS INT
 	LOCAL cEndLine			AS STRING
-	
+
 cEndLine := IIF(cLineEnding != "",cLineEnding,CRLF)
 
 hFRead := FOpen2(cFileName, FO_READ + FO_EXCLUSIVE)
@@ -4471,11 +4470,14 @@ RETURN FWrite4(hfWrite, PSZLine, PszLen(PSZLine), lDosFormat )
 
 METHOD WriteLineUTF8( hfWrite AS PTR, cLine AS STRING, lAnsiFormat := TRUE AS LOGIC, lAddCRLF := TRUE  ) AS DWord PASCAL CLASS P_Base
 // Einen normalen VO-String in einer UTF-8 Datei ausgeben (Umlaute)
-return( SELF:WriteLine(hfWrite, DynWide2Utf(VO2DynWideString(cLine)), lAnsiFormat, lAddCRLF ) )
+return( SELF:WriteLine(hfWrite, RecodeDynWideString(VO2DynWideString(cLine,,FALSE),CP_UTF8), lAnsiFormat, lAddCRLF ) )
 
 METHOD GetFileNameFromPath( cPathAndFileName AS STRING, cbCodeblock := nil AS USUAL ) AS STRING PASCAL CLASS P_Base
+// { |Drive, Path, FileName, Extension, FullPath| FileName + Extension }
+//
 // c:\temp\finken.xml --> finken.xml
 // c:\finken.xml      --> finken.xml
+
 
 	LOCAL oFile           AS AFileSpec
 	LOCAL cFileName       AS STRING
@@ -4484,7 +4486,7 @@ cbCodeblock := SELF:PrepareCodeblock( cbCodeblock, { |Drive, Path, FileName, Ext
 SELF:_CheckPath( cPathAndFileName )
 oFile:=aFileSpec{cPathAndFileName}
 cFileName := Eval(cbCodeBlock, oFile:Drive, oFile:Path, oFile:FileName, oFile:Extension, oFile:FullPath )
-oFile:Release()
+SELF:ReleaseIfNotNullObject( oFile )
 return( cFileName )
 
 METHOD GetPathNameFromPath( cPathAndFileName AS STRING, cbCodeblock := nil AS USUAL ) AS STRING PASCAL CLASS P_Base
@@ -4495,7 +4497,7 @@ METHOD GetPathNameFromPath( cPathAndFileName AS STRING, cbCodeblock := nil AS US
 
 cbCodeblock := SELF:PrepareCodeblock( cbCodeblock, { |Drive, Path, FileName, Extension, FullPath| Drive + Path } )
 SELF:_CheckPath( cPathAndFileName )
-oFile:=aFileSpec{cPathAndFileName}
+oFile:=AFileSpec{cPathAndFileName}
 cPathName := Eval(cbCodeBlock, oFile:Drive, oFile:Path, oFile:FileName, oFile:Extension, oFile:FullPath )
 //cPathName := eVal( cbCodeBlock, oFile )
 oFile:Release()
@@ -4514,17 +4516,19 @@ METHOD AddPath( cPathAndFileName AS STRING, cAddPath AS STRING, cbCodeblock := n
 cbCodeblock := SELF:PrepareCodeblock( cbCodeblock, { |Drive, Path, FileName, Extension, FullPath| Drive + Path + FileName + Extension } )
 SELF:_CheckPath( cPathAndFileName )
 SELF:_CheckPath( cAddPath )
-oFile:=aFileSpec{cPathAndFileName}
+oFile:=AFileSpec{cPathAndFileName}
 oFile:AppendToPath( cAddPath )
 cPathName := Eval(cbCodeBlock, oFile:Drive, oFile:Path, oFile:FileName, oFile:Extension, oFile:FullPath )
 oFile:Release()
 return( cPathName )
 
 PROTECT METHOD _CheckPath( cPath AS STRING ) AS LOGIC PASCAL CLASS P_Base
+/*
 if( SELF:StringFind( cPath, " " ) != 0 )
 	SELF:MessageFormat( "Achtung, im Pfad/Dateinamen # sind Leerzeichen vorhanden. Evtl. findet keine korrekte Ausführung statt", { cPath }, PROT_ART_WARNING )
 	return( false )
 endif
+*/
 return( true )
 
 METHOD BuildFileName( cFileName AS STRING, cbCodeBlock AS CODEBLOCK ) AS STRING PASCAL CLASS P_Base
@@ -4683,7 +4687,7 @@ METHOD StringDate( dDate AS DATE, cbCodeBlock := nil AS USUAL ) AS STRING PASCAL
 // MMMM : August
 // JJ   : 96
 // JJJJ : 1996
-// Standard: TT.MM.JJJJ
+// Standard: TT.MM.JJJJ = { |TT,T, MM,M,MMMM, JJJJ,JJ| TT+"."+MM+"."+JJJJ }
 
 	LOCAL cDateString := ""                  AS STRING
 	LOCAL aMonth                             AS ARRAY
@@ -4895,7 +4899,7 @@ SELF:__aTrace :={}
 return( cOutput )
 
 
-METHOD LinkDocument( cFileName AS STRING, symStructure AS SYMBOL, StructureRecordID AS STRING, cDocumentCaption AS STRING ) AS STRING PASCAL CLASS P_Base
+METHOD LinkDocument( cFileName AS STRING, symStructure AS SYMBOL, StructureRecordID AS STRING, cDocumentCaption AS STRING, cCategory := "", cDocLinkType := "" ) AS STRING PASCAL CLASS P_Base
 //
 // Verlinken einer externen Datei <cFileName> mit einer ams-Struktur
 // <symStructure>       : #REBUCHK
@@ -4907,8 +4911,16 @@ METHOD LinkDocument( cFileName AS STRING, symStructure AS SYMBOL, StructureRecor
 	LOCAL cDocID := ""      AS STRING
 	LOCAL cStatus := ""     AS STRING
 
-if( DocMgr_InsertExternalDocument(SELF:oTransactionManager, "AUTO", "", cFileName, @cDocID, @cStatus) )
+if( Empty(cDocLinkType) )
+	cDocLinkType := DOCMGR_LINK_TYPE_FILE
+endif
+
+if( DocMgr_InsertExternalDocument(SELF:oTransactionManager, cDocID, cDocumentCaption, cDocLinkType, cFileName, @cDocID, @cStatus) )
 	DocMgr_LinkDocWithRecord(SELF:oTransactionManager, cDocID, symStructure, StructureRecordID, "AUTO", FALSE, @cStatus)
+
+	if( !Empty( cCategory ) )
+		DocMgr_LinkDocWithCategory(SELF:oTransactionManager, cDocID, cCategory, "AUTO", @cStatus)
+	endif
 endif
 
 if( !Empty( cStatus ) )
