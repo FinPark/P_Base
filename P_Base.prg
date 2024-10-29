@@ -1,4 +1,4 @@
-// Nur ein Test
+// Änderung vom Mac übernommen und auf PC verändert
 TEXTBLOCK == P_Base
 
 DEFINE array_FIELDNAME            := 1
